@@ -7,6 +7,7 @@ use warnings;
 
 use base qw/DBIx::Class::Core/;
 
+__PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('cashcard');
 __PACKAGE__->add_columns(
     cardid => {
@@ -46,6 +47,6 @@ __PACKAGE__->add_columns(
 );
 
 __PACKAGE__->set_primary_key('cardid');
-__PACKAGE__->has_many('credit' => 'Cashpoint::Model::Result::Credit', 'creditid');
+__PACKAGE__->has_many('Credit' => 'Cashpoint::Model::Result::Credit', 'creditid');
 
 1;

@@ -1,5 +1,3 @@
-#!/usr/bin/perl
-
 package Cashpoint::Model::Result::Purchase;
 
 use strict;

@@ -7,6 +7,7 @@ use warnings;
 
 use base qw/DBIx::Class::Core/;
 
+__PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('sale');
 __PACKAGE__->add_columns(
     saleid => {

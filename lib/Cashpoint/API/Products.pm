@@ -12,6 +12,23 @@ our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
+get '/products' => sub {
+    my $products = schema()->resultset('Product')->search({}, {
+        order_by => { -asc => 'name' }
+    });
+
+    my @data = ();
+    while (my $p = $products->next) {
+        push @data, {
+            name    => $p->name,
+            ean     => $p->ean,
+            stock   => $p->stock,
+        };
+    }
+
+    return status_ok(\@data);
+};
+
 get '/products/:ean' => sub {
     my $product = schema()->resultset('Product')->search({ean => params->{ean}})
         ->single;

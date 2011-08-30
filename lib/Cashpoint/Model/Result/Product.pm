@@ -1,5 +1,3 @@
-#!/usr/bin/perl
-
 package Cashpoint::Model::Result::Product;
 
 use strict;
@@ -41,6 +39,11 @@ __PACKAGE__->add_columns(
         is_nullable => 0,
     },
 );
+
+sub stock {
+    my $self = shift;
+    return $self->search_related('Purchases', {})->get_column('amount')->sum || 0;
+};
 
 __PACKAGE__->set_primary_key('productid');
 __PACKAGE__->has_many('Purchases' => 'Cashpoint::Model::Result::Purchase', 'productid');

@@ -28,8 +28,8 @@ get '/products/:ean/purchases' => sub {
     while (my $p = $purchases->next) {
         push @data, {
             supplier     => $p->supplier,
-            purchasedate => $p->purchasedate->dmy('/'),
-            expirydate   => $p->expirydate ? $p->expirydate->dmy('/') : undef,
+            purchasedate => $p->purchasedate->dmy,
+            expirydate   => $p->expirydate ? $p->expirydate->dmy : undef,
             amount       => $p->amount,
             price        => $p->price,
         };
@@ -43,19 +43,21 @@ post '/products/:ean/purchases' => sub {
         ->single;
     return status_not_found('product not found') unless $product;
 
-
-    #supplier, purchasedate, expirydate, amount, price
     my @errors = ();
-    my $pdate = Time::Piece->strptime(params->{purchasedate} || 0, "%d/%m/%Y");
-    my $edate = Time::Piece->strptime(params->{expirydate} || 0, "%d/%m/%Y");
+
+    my ($pdate, $edate);
+    eval { $pdate = Time::Piece->strptime(params->{purchasedate} || 0, "%d-%m-%Y"); };
+    $pdate += $pdate->localtime->tzoffset;
+    eval { $edate = Time::Piece->strptime(params->{expirydate} || 0, "%d-%m-%Y"); };
+    $edate += $edate->localtime->tzoffset;
 
     if (0) {
     } if (!params->{supplier} || params->{supplier} !~ /^.{5,30}$/) {
         push @errors, 'supplier must be at least 5 and up to 30 chars long';
     } if (!params->{purchasedate} || !$pdate) {
-        push @errors, 'purchase date must follow dd/mm/yyyy formatting';
+        push @errors, 'purchase date must follow dd-mm-yyyy formatting';
     } if (params->{expirydate} && !$edate) {
-        push @errors, 'expiry date must follow dd/mm/yyyy formatting';
+        push @errors, 'expiry date must follow dd-mm-yyyy formatting';
     } if (!params->{amount} || params->{amount} !~ /^\d+$/) {
         push @errors, 'amount must be greater zero';
     } if (!params->{price} || !isfloat(params->{price})) {
