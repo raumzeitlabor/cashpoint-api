@@ -39,6 +39,12 @@ post '/cashcards' => sub {
     if (0) {
     } if (!params->{code} || params->{code} !~ /^.{5,30}$/) {
         push @errors, 'code must be at least 5 and up to 30 chars long';
+    } if (!defined params->{userid} || params->{userid} !~ /^\d+$/) {
+        push @errors, 'userid is required or must be set to 0 for anonymous cards';
+        # FIXME: also check if userid exists?
+    } if (!params->{groupid} || !schema->resultset('Group')->search({
+            groupid => params->{groupid}})->count) {
+        push @errors, 'groupid is missing or group does not exist';
     } if (schema->resultset('Cashcard')->search({ code => params->{code}})->count) {
         @errors = ('code is already in use');
     }
@@ -47,7 +53,7 @@ post '/cashcards' => sub {
 
     schema->resultset('Cashcard')->create({
         code           => params->{code},
-        groupid        => 0, # FIXME
+        groupid        => params->{groupid},
         userid         => 0, # FIXME
         activationdate => DateTime->now,
     });
@@ -59,11 +65,9 @@ put '/cashcards/:code/disable' => sub {
     my $cashcard = schema()->resultset('Cashcard')->search({code => params->{code}})
         ->single;
     return status_not_found("cashcard does not exist") unless $cashcard;
-
     return status_bad_request("cashcard already disabled") if $cashcard->disabled;
 
     $cashcard->update({disabled => 1});
-
     return status_ok();
 };
 
@@ -71,11 +75,9 @@ put '/cashcards/:code/enable' => sub {
     my $cashcard = schema()->resultset('Cashcard')->search({code => params->{code}})
         ->single;
     return status_not_found("cashcard does not exist") unless $cashcard;
-
     return status_bad_request("cashcard already enabled") unless $cashcard->disabled;
 
     $cashcard->update({disabled => 0});
-
     return status_ok();
 };
 
