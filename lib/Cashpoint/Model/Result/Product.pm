@@ -56,21 +56,38 @@ sub price {
     # for them. however, these conditions have lower priority than product
     # conditions.
     my $conditions = schema->resultset('Condition')->search({
-        -or => {
-            productid => $self->id,
-            productid => undef,
-        },
-        -or => {
-            userid => $cashcard->user,
-            userid => undef,
-        },
-        groupid => $cashcard->group->id,
+        -and => [
+            -or => [
+                productid => $self->id,
+                productid => undef,
+            ],
+            -or => [
+                userid => $cashcard->user,
+                userid => undef,
+            ],
+            groupid => $cashcard->group->id,
+        ],
     }, {
-        order_by => { -desc => qw/productid userid groupid/ }
+        order_by => { -desc => [qw/productid userid groupid/] }
     }); # FIXME: with valid date
 
     return undef unless $conditions->count;
-    return Cashpoint::API::Pricing::Engine::calculate($conditions);
+
+    my $base = $self->search_related('Purchases', {}, {
+        order_by => { -desc => 'purchaseid' },
+        rows     => 5,
+    })->get_column('price')->func('AVG');
+    while (my $c = $conditions->next) {
+        if (0) {
+        } elsif ($c->premium && $c->fixedprice) {
+            return sprintf("%.2f", $base*$c->premium+$c->fixedprice);
+        } elsif ($c->premium && !$c->fixedprice) {
+            return sprintf("%.2f", $base*$c->premium);
+        } elsif (!$c->premium && $c->fixedprice) {
+            return sprintf("%.2f", $c->fixedprice);
+        }
+        return 0;
+    }
 };
 
 __PACKAGE__->set_primary_key('productid');

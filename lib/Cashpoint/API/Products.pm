@@ -156,7 +156,7 @@ post '/products/:ean/conditions' => sub {
     } if (!params->{groupid} || params->{groupid} !~ /^\d+$/) {
         push @errors, 'groupid is required';
     } if (!defined params->{userid} || params->{userid} !~ /^\d+$/) {
-        push @errors, 'userid is required or must be set to 0 for anonymous cards';
+        push @errors, 'userid is required or must be set to 0';
     } if (params->{quantity} && (params->{quantity} !~ /^d+$/ || params->{quantity} == 0)) {
         push @errors, 'quantity must be greater zero if specified';
     } if (params->{comment} && params->{comment} !~ /^.{5,50}$/) {
@@ -180,7 +180,7 @@ post '/products/:ean/conditions' => sub {
 
     $product->create_related('Conditions', {
         groupid     => params->{groupid},
-        userid      => params->{userid},
+        userid      => params->{userid} != 0 ? params->{userid} : undef,
         quantity    => params->{quantity} || 0,
         comment     => params->{comment} || undef,
         premium     => params->{premium} || undef,
