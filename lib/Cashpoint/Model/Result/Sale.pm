@@ -44,5 +44,6 @@ __PACKAGE__->add_columns(
 
 __PACKAGE__->set_primary_key('saleid');
 __PACKAGE__->has_many('SaleItems' => 'Cashpoint::Model::Result::SaleItem', 'itemid');
+__PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');
 
 1;

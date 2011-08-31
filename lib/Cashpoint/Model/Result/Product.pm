@@ -5,6 +5,9 @@ use warnings;
 
 use base qw/DBIx::Class::Core/;
 
+use Cashpoint::API::Pricing::Engine;
+use Dancer::Plugin::DBIC;
+
 __PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('product');
 __PACKAGE__->add_columns(
@@ -43,6 +46,31 @@ __PACKAGE__->add_columns(
 sub stock {
     my $self = shift;
     return $self->search_related('Purchases', {})->get_column('amount')->sum || 0;
+};
+
+sub price {
+    my ($self, $cashcard) = @_;
+
+    # if no conditions have been explicitly defined for this product, there
+    # may be a default condition for the group of the user, so we also look
+    # for them. however, these conditions have lower priority than product
+    # conditions.
+    my $conditions = schema->resultset('Condition')->search({
+        -or => {
+            productid => $self->id,
+            productid => undef,
+        },
+        -or => {
+            userid => $cashcard->user,
+            userid => undef,
+        },
+        groupid => $cashcard->group->id,
+    }, {
+        order_by => { -desc => qw/productid userid groupid/ }
+    }); # FIXME: with valid date
+
+    return undef unless $conditions->count;
+    return Cashpoint::API::Pricing::Engine::calculate($conditions);
 };
 
 __PACKAGE__->set_primary_key('productid');

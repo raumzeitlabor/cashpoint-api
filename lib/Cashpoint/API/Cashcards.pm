@@ -21,7 +21,7 @@ get '/cashcards' => sub {
     while (my $c = $cashcards->next) {
         push @data, {
             code           => $c->code,
-            groupid        => $c->group,
+            groupid        => $c->group->id,
             userid         => $c->user,
             activationdate => $c->activationdate->datetime,
             disabled       => $c->disabled,
@@ -37,7 +37,7 @@ post '/cashcards' => sub {
     # FIXME: user/group
     # code group user activation disabled
     if (0) {
-    } if (!params->{code} || params->{code} !~ /^.{5,30}$/) {
+    } if (!params->{code} || params->{code} !~ /^[a-z0-9]{5,30}$/i) {
         push @errors, 'code must be at least 5 and up to 30 chars long';
     } if (!defined params->{userid} || params->{userid} !~ /^\d+$/) {
         push @errors, 'userid is required or must be set to 0 for anonymous cards';
@@ -54,7 +54,7 @@ post '/cashcards' => sub {
     schema->resultset('Cashcard')->create({
         code           => params->{code},
         groupid        => params->{groupid},
-        userid         => 0, # FIXME
+        userid         => params->{userid}, # FIXME
         activationdate => DateTime->now,
     });
 
@@ -62,8 +62,7 @@ post '/cashcards' => sub {
 };
 
 put '/cashcards/:code/disable' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->search({code => params->{code}})
-        ->single;
+    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
     return status_not_found("cashcard does not exist") unless $cashcard;
     return status_bad_request("cashcard already disabled") if $cashcard->disabled;
 
@@ -72,8 +71,7 @@ put '/cashcards/:code/disable' => sub {
 };
 
 put '/cashcards/:code/enable' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->search({code => params->{code}})
-        ->single;
+    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
     return status_not_found("cashcard does not exist") unless $cashcard;
     return status_bad_request("cashcard already enabled") unless $cashcard->disabled;
 

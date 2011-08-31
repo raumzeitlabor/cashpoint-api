@@ -9,7 +9,7 @@ use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
 
 use Time::Piece;
-use Scalar::Util::Numeric qw/isfloat/;
+use Scalar::Util::Numeric qw/isnum/;
 
 our $VERSION = '0.1';
 
@@ -60,7 +60,7 @@ post '/products/:ean/purchases' => sub {
         push @errors, 'expiry date must follow dd-mm-yyyy formatting';
     } if (!params->{amount} || params->{amount} !~ /^\d+$/) {
         push @errors, 'amount must be greater zero';
-    } if (!params->{price} || !isfloat(params->{price})) {
+    } if (!params->{price} || !isnum(params->{price})) {
         push @errors, 'price must be a decimal';
     }
 

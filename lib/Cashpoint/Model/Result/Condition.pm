@@ -64,7 +64,7 @@ __PACKAGE__->add_columns(
         is_nullable => 0,
     },
 
-    startdate => {
+    enddate => {
         data_type => 'datetime',
         is_nullable => 1,
     },
@@ -73,5 +73,6 @@ __PACKAGE__->add_columns(
 
 __PACKAGE__->set_primary_key('conditionid');
 __PACKAGE__->belongs_to('productid' => 'Cashpoint::Model::Result::Product');
+__PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');
 
 1;
