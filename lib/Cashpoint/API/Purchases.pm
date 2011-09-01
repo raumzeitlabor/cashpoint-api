@@ -72,7 +72,7 @@ post '/products/:ean/purchases' => sub {
         purchasedate => $pdate->datetime,
         expirydate   => params->{expirydate} ? $edate->datetime : undef,
         amount       => params->{amount},
-        price        => params->{price},
+        price        => sprintf("%.2f", params->{price}),
     });
 
     # xxx: check if inserted

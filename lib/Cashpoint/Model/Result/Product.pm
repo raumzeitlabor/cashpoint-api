@@ -6,6 +6,7 @@ use warnings;
 use base qw/DBIx::Class::Core/;
 
 use Cashpoint::API::Pricing::Engine;
+use Cashpoint::Model::Price;
 use Dancer::Plugin::DBIC;
 
 __PACKAGE__->load_components(qw/InflateColumn::DateTime/);
@@ -53,7 +54,7 @@ sub price {
 
     # if no conditions have been explicitly defined for this product, there
     # may be a default condition for the group of the user, so we also look
-    # for them. however, these conditions have lower priority than product
+    # for it. however, these conditions have lower priority than product
     # conditions.
     my $conditions = schema->resultset('Condition')->search({
         -and => [
@@ -68,31 +69,42 @@ sub price {
             groupid => $cashcard->group->id,
         ],
     }, {
-        order_by => { -desc => [qw/productid userid groupid/] }
     }); # FIXME: with valid date
 
     return undef unless $conditions->count;
 
-    my $base = $self->search_related('Purchases', {}, {
+    # FIXME: use weighted average?
+    my $base = $self->search_related('Purchases', {
+    }, {
+        +select  => [ \'me.price/me.amount' ], # FIXME: is there a more elegant way?
+        +as      => [ qw/unitprice/ ],
         order_by => { -desc => 'purchaseid' },
         rows     => 5,
-    })->get_column('price')->func('AVG');
+    })->get_column('unitprice')->func('AVG');
+
+    # FIXME: calculate prices for all conditions and cache them?
     while (my $c = $conditions->next) {
         if (0) {
         } elsif ($c->premium && $c->fixedprice) {
-            return sprintf("%.2f", $base*$c->premium+$c->fixedprice);
+            return Cashpoint::Model::Price->new($c->id, sprintf("%.1f0",
+                $base*$c->premium+$c->fixedprice)+0.0);
         } elsif ($c->premium && !$c->fixedprice) {
-            return sprintf("%.2f", $base*$c->premium);
+            return Cashpoint::Model::Price->new($c->id, sprintf("%.1f0",
+                $base*$c->premium)+0.0);
         } elsif (!$c->premium && $c->fixedprice) {
-            return sprintf("%.2f", $c->fixedprice);
+            return Cashpoint::Model::Price->new($c->id, sprintf("%.1f0",
+                $c->fixedprice)+0.0);
         }
-        return 0;
+        return undef;
     }
 };
 
 __PACKAGE__->set_primary_key('productid');
-__PACKAGE__->has_many('Purchases' => 'Cashpoint::Model::Result::Purchase', 'productid');
-__PACKAGE__->has_many('SaleItems' => 'Cashpoint::Model::Result::SaleItem', 'productid');
-__PACKAGE__->has_many('Conditions' => 'Cashpoint::Model::Result::Condition', 'productid');
+__PACKAGE__->has_many('Purchases' => 'Cashpoint::Model::Result::Purchase',
+    'productid', { order_by => { -desc => 'purchaseid' }});
+__PACKAGE__->has_many('SaleItems' => 'Cashpoint::Model::Result::SaleItem',
+    'productid', { order_by => { -desc => 'itemid' }});
+__PACKAGE__->has_many('Conditions' => 'Cashpoint::Model::Result::Condition',
+    'productid', { order_by => { -desc => [qw/userid groupid/]}});
 
-1;
+42;

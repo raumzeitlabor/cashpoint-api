@@ -46,8 +46,14 @@ __PACKAGE__->add_columns(
     },
 );
 
+sub credit {
+    my $self = shift;
+    my $credit = $self->search_related('Credit', {});
+    return sprintf("%.2f", ($credit->count ? $credit->get_column('amount')->sum : 0) +0.0);
+}
+
 __PACKAGE__->set_primary_key('cardid');
-__PACKAGE__->has_many('Credit' => 'Cashpoint::Model::Result::Credit', 'creditid');
+__PACKAGE__->has_many('Credit' => 'Cashpoint::Model::Result::Credit', 'cardid');
 __PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');
 
 1;

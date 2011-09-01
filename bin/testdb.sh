@@ -9,3 +9,7 @@ curl -D - -X POST -H 'Content-Type: application/json' -d '{"groupid":1,"userid":
 curl -D - -X POST -H 'Content-Type: application/json' -d '{"groupid":1,"userid":0,"premium":0.6,"comment":"foooi"}' http://localhost:3000/products/1333337/conditions
 curl -D - -X POST -H "Content-Type: application/json" -d '{"code":"foobar3","userid":1,"groupid":1}' http://localhost:3000/cashcards
 curl -D - -X POST -H "Content-Type: application/json" -d '{"code":"gast1","userid":0,"groupid":1}' http://localhost:3000/cashcards
+curl -D - -X POST -H 'Content-Type: application/json' -d '{"type":1, "remark":"foo", "amount":13.519}' http://localhost:3000/cashcards/gast1/credit
+curl -D - -X POST -H 'Content-Type: application/json' -d '{"type":1, "remark":"foo", "amount":1}' http://localhost:3000/cashcards/foobar3/credit
+curl -D - -X POST -H 'Content-Type: application/json' "http://localhost:3000/baskets?cashcard=foobar3"
+curl -D - -X POST -H 'Content-Type: application/json' "http://localhost:3000/baskets/1/items?cashcard=foobar3&ean=1333337"

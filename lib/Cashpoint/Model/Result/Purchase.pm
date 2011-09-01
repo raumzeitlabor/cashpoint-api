@@ -50,9 +50,16 @@ __PACKAGE__->add_columns(
 
     price => {
         data_type => 'float',
+        accessor  => '_price',
         is_nullable => 0,
     },
 );
+
+sub price {
+    my $self = shift;
+    return $self->_price(@_) if @_;
+    return sprintf("%.2f", $self->_price())+0.0;
+}
 
 __PACKAGE__->set_primary_key('purchaseid');
 __PACKAGE__->belongs_to('productid' => 'Cashpoint::Model::Result::Product');

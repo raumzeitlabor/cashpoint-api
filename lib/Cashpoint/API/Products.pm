@@ -103,7 +103,7 @@ get '/products/:ean/price' => sub {
 
     my $price = $product->price($cashcard);
     return status_not_found('no price available') unless $price; # FIXME: not found?
-    return status_ok({price => $price});
+    return status_ok({price => $price->value, condition => $price->condition});
 };
 
 get '/products/:ean/conditions' => sub {
