@@ -60,22 +60,30 @@ post '/products/:ean/purchases' => sub {
         push @errors, 'expiry date must follow dd-mm-yyyy formatting';
     } if (!params->{amount} || params->{amount} !~ /^\d+$/) {
         push @errors, 'amount must be greater zero';
-    } if (!params->{price} || !isnum(params->{price})) {
-        push @errors, 'price must be a decimal';
+    } if (!params->{price} || !isnum(params->{price}) || params->{price} < 0) {
+        push @errors, 'price must be a positive decimal';
     }
 
     return status_bad_request(\@errors) if @errors;
 
-    my $insert = $product->create_related('Purchases', {
-        userid       => 0, # FIXME
-        supplier     => params->{supplier},
-        purchasedate => $pdate->datetime,
-        expirydate   => params->{expirydate} ? $edate->datetime : undef,
-        amount       => params->{amount},
-        price        => sprintf("%.2f", params->{price}),
+    my $insert;
+    schema->txn_do(sub {
+        $insert = $product->create_related('Purchases', {
+            userid       => 0, # FIXME
+            supplier     => params->{supplier},
+            purchasedate => $pdate->datetime,
+            expirydate   => params->{expirydate} ? $edate->datetime : undef,
+            amount       => params->{amount},
+            price        => sprintf("%.2f", params->{price}),
+        });
+
+        # update stock
+        $product->stock($product->stock+params->{amount});
+        $product->update;
     });
 
     # xxx: check if inserted
+    return status_bad_request('an error occured, please try again later') if $@;
     return status_created({id => $insert->id});
 };
 

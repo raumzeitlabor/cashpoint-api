@@ -34,13 +34,7 @@ __PACKAGE__->add_columns(
         is_nullable => 1,
     },
 
-    amount => {
-        data_type => 'integer',
-        is_numeric => 1,
-        is_nullable => 0,
-    },
-
-    sum => {
+    price => {
         data_type => 'float',
         is_numeric => 1,
         is_nullable => 0,

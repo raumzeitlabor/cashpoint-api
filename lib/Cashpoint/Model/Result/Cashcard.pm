@@ -10,7 +10,7 @@ use base qw/DBIx::Class::Core/;
 __PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('cashcard');
 __PACKAGE__->add_columns(
-    cardid => {
+    cashcardid => {
         accessor  => 'card',
         data_type => 'integer',
         is_nullable => 0,
@@ -19,7 +19,7 @@ __PACKAGE__->add_columns(
 
     code => {
         data_type => 'varchar',
-        size      => 30,
+        size      => 18,
         is_nullable => 0,
     },
 
@@ -32,7 +32,7 @@ __PACKAGE__->add_columns(
     userid => {
         accessor => 'user',
         data_type => 'integer',
-        is_nullable => 0,
+        is_nullable => 1,
     },
 
     activationdate => {
@@ -52,8 +52,8 @@ sub credit {
     return sprintf("%.2f", ($credit->count ? $credit->get_column('amount')->sum : 0) +0.0);
 }
 
-__PACKAGE__->set_primary_key('cardid');
-__PACKAGE__->has_many('Credit' => 'Cashpoint::Model::Result::Credit', 'cardid');
+__PACKAGE__->set_primary_key('cashcardid');
+__PACKAGE__->has_many('Credit' => 'Cashpoint::Model::Result::Credit', 'cashcardid');
 __PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');
 
-1;
+42;

@@ -15,8 +15,8 @@ __PACKAGE__->add_columns(
         is_auto_increment => 1,
     },
 
-    cardid => {
-        accessor => 'card',
+    cashcardid => {
+        accessor => 'cashcard',
         data_type => 'integer',
         is_numeric => 1,
         is_nullable => 0,
@@ -61,6 +61,6 @@ sub amount {
 }
 
 __PACKAGE__->set_primary_key('creditid');
-__PACKAGE__->belongs_to('cardid' => 'Cashpoint::Model::Result::Cashcard');
+__PACKAGE__->belongs_to('cashcardid' => 'Cashpoint::Model::Result::Cashcard');
 
 1;

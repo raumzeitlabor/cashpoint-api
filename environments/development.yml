@@ -28,9 +28,15 @@ auto_reload: 0
 
 plugins:
   DBIC:
-    foo:
+    cashpoint:
       dsn: dbi:SQLite:dbname=./cashpoint.db
       schema_class: Cashpoint::Model
+      options:
+        RaiseError: 1
+        PrintError: 1
+    benutzerdb:
+      dsn: dbi:SQLite:dbname=./benutzerdb.db
+      schema_class: BenutzerDB::Model
       options:
         RaiseError: 1
         PrintError: 1

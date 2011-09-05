@@ -9,22 +9,23 @@ use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
 
 use DateTime;
+use Scalar::Util::Numeric;
 
 our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
 get '/cashcards' => sub {
-    my $cashcards = schema()->resultset('Cashcard')->search({}, {});
+    my $cashcards = schema('cashpoint')->resultset('Cashcard')->ordered;
 
     my @data = ();
     while (my $c = $cashcards->next) {
         push @data, {
-            code           => $c->code,
-            groupid        => $c->group->id,
-            userid         => $c->user,
-            activationdate => $c->activationdate->datetime,
-            disabled       => $c->disabled,
+            code         => $c->code,
+            group        => $c->group->id,
+            user         => $c->user,
+            activated_on => $c->activationdate->datetime,
+            disabled     => $c->disabled,
         };
     }
 
@@ -34,54 +35,62 @@ get '/cashcards' => sub {
 post '/cashcards' => sub {
     my @errors = ();
 
-    # FIXME: user/group
-    # code group user activation disabled
-    if (0) {
-    } if (!params->{code} || params->{code} !~ /^[a-z0-9]{5,30}$/i) {
-        push @errors, 'code must be at least 5 and up to 30 chars long';
-    } if (!defined params->{userid} || params->{userid} !~ /^\d+$/) {
-        push @errors, 'userid is required or must be set to 0 for anonymous cards';
-        # FIXME: also check if userid exists?
-    } if (!params->{groupid} || !schema->resultset('Group')->search({
-            groupid => params->{groupid}})->count) {
-        push @errors, 'groupid is missing or group does not exist';
-    } if (schema->resultset('Cashcard')->search({ code => params->{code}})->count) {
-        @errors = ('code is already in use');
+    my ($code, $user, $group) = map { s/^\s+|\s+$//g if $_; $_ }
+        (params->{code}, params->{user}, params->{group});
+
+    # FIXME: validate user
+    if (!$code || $code !~ /^[a-z0-9]{18}$/i || schema('cashpoint')
+            ->resultset('Cashcard')->find({ code => $code})) {
+        push @errors, 'invalid code';
+    }
+    if (defined $user && (!isint($user) || $user == 0)) {
+        push @errors, 'invalid user';
+    }
+    if (!defined $group || (!isint($group) || $group == 0
+            || !schema('cashpoint')->resultset('Group')->find($group))) {
+        push @errors, 'group invalid or not found';
     }
 
     return status_bad_request(\@errors) if @errors;
 
-    schema->resultset('Cashcard')->create({
-        code           => params->{code},
-        groupid        => params->{groupid},
-        userid         => params->{userid}, # FIXME
+    schema('cashpoint')->resultset('Cashcard')->create({
+        code           => $code,
+        groupid        => $group,
+        userid         => $user,
         activationdate => DateTime->now,
     });
 
     return status_created();
 };
 
-put '/cashcards/:code/disable' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
-    return status_not_found("cashcard does not exist") unless $cashcard;
+put qr{/cashcards/([a-zA-Z0-9]{18})/disable} => sub {
+    my ($code) = splat;
+    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
+        code => $code,
+    });
+    return status_not_found("cashcard not found") unless $cashcard;
     return status_bad_request("cashcard already disabled") if $cashcard->disabled;
 
     $cashcard->update({disabled => 1});
     return status_ok();
 };
 
-put '/cashcards/:code/enable' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
-    return status_not_found("cashcard does not exist") unless $cashcard;
+put qr{/cashcards/([a-zA-Z0-9]{18})/enable} => sub {
+    my ($code) = splat;
+    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
+        code => $code,
+    }) || return status_not_found("cashcard not found");
     return status_bad_request("cashcard already enabled") unless $cashcard->disabled;
 
     $cashcard->update({disabled => 0});
     return status_ok();
 };
 
-get '/cashcards/:code/credit' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
-    return status_not_found("cashcard does not exist") unless $cashcard;
+get qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
+    my ($code) = splat;
+    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
+        code => $code,
+    }) || return status_not_found("cashcard not found");
 
     return status_ok({
         amount => $cashcard->credit,
@@ -89,41 +98,36 @@ get '/cashcards/:code/credit' => sub {
     });
 };
 
-post '/cashcards/:code/credit' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
-    return status_not_found("cashcard does not exist") unless $cashcard;
+post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
+    my ($code) = splat;
+    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
+        code => $code,
+    }) || return status_not_found("cashcard not found");
+    return status_bad_request("cashcard disabled") if $cashcard->disabled;
+
+    my ($type, $remark, $amount) = map { s/^\s+|\s+$//g if $_; $_ }
+        (params->{type}, params->{remark}, params->{amount});
 
     my @errors = ();
-    # type, remark, amount
-    if (0) {
-    } if (!params->{type} || params->{type} !~ /^[0,1]$/) { # 0 = init, 1 = charge
+    if (defined $type && $type != 0 && $type != 1) { # 0 = init, 1 = charge
         push @errors, 'invalid charge type';
-    } if (params->{remark} && params->{remark} !~ /^.{1,50}$/) {
-        push @errors, 'maximum length of remark is 50 chars';
-    } if (!params->{amount} || !isnum(params->{amount})) {
+    }
+    if ($remark && length $remark > 50) {
+        push @errors, 'invalid remark';
+    }
+    if (!defined $amount || !isnum($amount)) {
         push @errors, 'invalid amount';
     }
 
     return status_bad_request(\@errors) if @errors;
 
     my $credit = $cashcard->create_related('Credit', {
-        chargingtype => params->{type},
-        remark       => params->{remark} || undef,
-        amount       => sprintf("%.2f", params->{amount}),
+        chargingtype => $type || 1,
+        remark       => $remark || undef,
+        amount       => sprintf("%.2f", $amount),
         date         => DateTime->now,
     });
 
-    return status_ok({id => $credit->id});
-};
-
-del '/cashcards/:code/credit/:id' => sub {
-    my $cashcard = schema()->resultset('Cashcard')->find({code => params->{code}});
-    return status_not_found("cashcard does not exist") unless $cashcard;
-
-    my $credit = $cashcard->search_related('Credit', { creditid => params->{id}});
-    return status_not_found('credit not found') unless $credit;
-
-    $credit->delete;
     return status_ok();
 };
 

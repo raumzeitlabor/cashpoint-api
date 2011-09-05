@@ -17,19 +17,18 @@ __PACKAGE__->add_columns(
         is_auto_increment => 1,
     },
 
-    groupid => {
-        accessor => 'group',
+    cashcardid => {
+        accessor => 'cashcard',
         data_type => 'integer',
         is_nullable => 0,
     },
 
-    userid => {
-        accessor => 'user',
-        data_type => 'integer',
-        is_nullable => 0,
+    basketdate => {
+        data_type => 'datetime',
+        is_nullable => 1,
     },
 
-    date => {
+    saledate => {
         data_type => 'datetime',
         is_nullable => 0,
     },
@@ -44,6 +43,6 @@ __PACKAGE__->add_columns(
 
 __PACKAGE__->set_primary_key('saleid');
 __PACKAGE__->has_many('SaleItems' => 'Cashpoint::Model::Result::SaleItem', 'itemid');
-__PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');
+__PACKAGE__->belongs_to('cashcardid' => 'Cashpoint::Model::Result::Cashcard');
 
 1;

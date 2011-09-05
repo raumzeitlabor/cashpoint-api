@@ -67,7 +67,7 @@ get '/products/:ean' => sub {
         ean       => $product->ean,
         added_on  => $product->added_on->datetime,
         stock     => $product->stock,
-        #threshold => $product->threshold,
+        threshold => $product->threshold,
     });
 };
 
@@ -101,7 +101,9 @@ get '/products/:ean/price' => sub {
 
     return status_bad_request(\@errors) if @errors;
 
+    # price for one single unit
     my $price = $product->price($cashcard);
+
     return status_not_found('no price available') unless $price; # FIXME: not found?
     return status_ok({price => $price->value, condition => $price->condition});
 };
@@ -112,13 +114,11 @@ get '/products/:ean/conditions' => sub {
 
     my $parser = schema->storage->datetime_parser;
     my $conditions = $product->search_related('Conditions', {
-#        -and => {
-#            startdate   => {'>=' => $parser->format_datetime(DateTime->now)},
-#            -or => {
-#                enddate => {'<=' => $parser->format_datetime(DateTime->now)},
-#                enddate => undef,
-#            },
-#        },
+        startdate => { '<=', $parser->format_datetime(DateTime->now) },
+        -or => [
+            enddate => undef,
+            enddate => { '>=', $parser->format_datetime(DateTime->now) },
+        ],
     }, {
         order_by => {-asc => 'startdate'},
     });
@@ -153,10 +153,10 @@ post '/products/:ean/conditions' => sub {
 
     my @errors = ();
     if (0) {
-    } if (!params->{groupid} || params->{groupid} !~ /^\d+$/) {
-        push @errors, 'groupid is required';
-    } if (!defined params->{userid} || params->{userid} !~ /^\d+$/) {
-        push @errors, 'userid is required or must be set to 0';
+    } if (!params->{group} || params->{group} !~ /^\d+$/) {
+        push @errors, 'group is required';
+    } if (params->{user} && params->{user} !~ /^\d+$/) {
+        push @errors, 'user is required or must be set to 0';
     } if (params->{quantity} && (params->{quantity} !~ /^d+$/ || params->{quantity} == 0)) {
         push @errors, 'quantity must be greater zero if specified';
     } if (params->{comment} && params->{comment} !~ /^.{5,50}$/) {
@@ -171,16 +171,16 @@ post '/products/:ean/conditions' => sub {
         push @errors, 'startdate must follow dd-mm-yyyy formatting';
     } if (params->{enddate} && !$edate) {
         push @errors, 'enddate must follow dd-mm-yyyy formatting';
-    } if (params->{groupid} && !schema->resultset('Group')
-        ->find({groupid => params->{groupid}})) {
+    } if (params->{group} && !schema->resultset('Group')
+        ->find({groupid => params->{group}})) {
         @errors = ('group does not exist');
     }
 
     return status_bad_request(\@errors) if @errors;
 
     $product->create_related('Conditions', {
-        groupid     => params->{groupid},
-        userid      => params->{userid} != 0 ? params->{userid} : undef,
+        groupid     => params->{group},
+        userid      => params->{user} ? params->{user} : undef,
         quantity    => params->{quantity} || 0,
         comment     => params->{comment} || undef,
         premium     => params->{premium} || undef,
