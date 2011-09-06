@@ -9,7 +9,7 @@ use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
 
 use DateTime;
-use Scalar::Util::Numeric;
+use Scalar::Util::Numeric qw/isfloat/;
 
 our $VERSION = '0.1';
 
@@ -115,7 +115,8 @@ post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
     if ($remark && length $remark > 50) {
         push @errors, 'invalid remark';
     }
-    if (!defined $amount || !isnum($amount)) {
+    if (!defined $amount || !isnum($amount) || (isfloat($amount)
+            && sprintf("%.2f", $amount) ne $amount)) {
         push @errors, 'invalid amount';
     }
 
@@ -127,6 +128,12 @@ post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
         amount       => sprintf("%.2f", $amount),
         date         => DateTime->now,
     });
+
+    # lock card if credit is negative and lock it if necessary
+    if ($cashcard->credit < 0) {
+        $cashcard->disabled(1);
+        $cashcard->update;
+    }
 
     return status_ok();
 };

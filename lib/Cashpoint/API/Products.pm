@@ -12,12 +12,8 @@ use Scalar::Util::Numeric qw/isnum/;
 
 our $VERSION = '0.1';
 
-set serializer => 'JSON';
-
 get '/products' => sub {
-    my $products = schema()->resultset('Product')->search({}, {
-        order_by => { -asc => 'name' }
-    });
+    my $products = schema('cashpoint')->resultset('Product')->ordered;
 
     my @data = ();
     while (my $p = $products->next) {
@@ -35,33 +31,39 @@ get '/products' => sub {
 post '/products' => sub {
     my @errors = ();
 
-    if (0) {
-    } if (!params->{name} || params->{name} !~ /^.{5,30}$/) {
-        push @errors, 'name must be at least 5 and up to 30 chars long';
-    } if (!params->{ean} || params->{ean} !~ /^.{5,30}$/) {
-        push @errors, 'ean must be at least 5 and up to 20 chars long';
-    } if (params->{threshold} && params->{threshold} !~ /^\d+$/) {
-        push @errors, 'threshold must be greater than 0';
-    } if (schema->resultset('Product')->find({ ean => params->{ean}})) {
-        @errors = ('product already exists');
+    my ($name, $ean, $threshold) = map { s/^\s+|\s+$//g if $_; $_ }
+        (params->{name}, params->{ean}, params->{threshold});
+
+    if (!$name || length $name > 30) {
+        push @errors, 'invalid name';
+    }
+    if (!$ean || length $ean > 13 || !validate_ean($ean)) {
+        push @errors, 'invalid ean';
+    } elsif (schema('cashpoint')->resultset('Product')->find({ ean => $ean})) {
+        push @errors, 'product already exists';
+    }
+    if (defined $threshold && (!isint($threshold) || $threshold <= 0)) {
+        push @errors, 'invalid threshold';
     }
 
     return status_bad_request(\@errors) if @errors;
 
-    schema->resultset('Product')->create({
-        ean       => params->{ean},
-        name      => params->{name},
-        threshold => params->{threshold} || 0,
+    schema('cashpoint')->resultset('Product')->create({
+        ean       => $ean,
+        name      => $name,
+        threshold => $threshold || 0,
         added_on  => DateTime->now,
     });
 
-    # xxx: check if inserted
     return status_created();
 };
 
-get '/products/:ean' => sub {
-    my $product = schema()->resultset('Product')->find({ean => params->{ean}});
-    return status_not_found('product not found') unless $product;
+get qr{/products/([0-9]{13}|[0-9]{8})} => sub {
+    my ($ean) = splat;
+    my $product = schema('cashpoint')->resultset('Product')->find({
+        ean => $ean,
+    }) || return status_not_found('product not found');
+
     return status_ok({
         name      => $product->name,
         ean       => $product->ean,
@@ -71,32 +73,25 @@ get '/products/:ean' => sub {
     });
 };
 
-del '/products/:ean' => sub {
-    my $product = schema()->resultset('Product')->find({ean => params->{ean}});
-    return status_not_found('product not found') unless $product;
-    $product->delete;
+get qr{/products/([0-9]{13}|[0-9]{8})/price} => sub {
+    my ($ean) = splat;
+    my $product = schema('cashpoint')->resultset('Product')->find({
+        ean => $ean,
+    }) || return status_not_found('product not found');
 
-    # xxx: check if deleted
-    return status_ok();
-};
+    (my $code = params->{cashcard} || "") =~ s/^\s+|\s+$//g;
 
-get '/products/:ean/price' => sub {
-    my $product = schema()->resultset('Product')->find({ean => params->{ean}});
-    return status_not_found('product not found') unless $product;
-
-    my @errors = ();
     my $cashcard;
-
-    if (0) {
-    } if (!params->{cashcard} || params->{cashcard} !~ /^[a-z0-9]{5,30}$/i) {
-        push @errors, 'cashcard code missing or illegal';
+    my @errors = ();
+    if (!$code || $code !~ /^[a-z0-9]{18}$/i) {
+        push @errors, 'invalid cashcard';
     } else {
-        $cashcard = schema->resultset('Cashcard')->find({
-            code     => params->{cashcard},
+        $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
+            code     => $code,
             disabled => 0
         });
 
-        @errors = ('illegal cashcard or cashcard disabled') unless $cashcard;
+        push @errors, 'invalid cashcard' unless $cashcard;
     }
 
     return status_bad_request(\@errors) if @errors;
@@ -104,15 +99,17 @@ get '/products/:ean/price' => sub {
     # price for one single unit
     my $price = $product->price($cashcard);
 
-    return status_not_found('no price available') unless $price; # FIXME: not found?
+    return status_not_found('no price available') unless $price;
     return status_ok({price => $price->value, condition => $price->condition});
 };
 
-get '/products/:ean/conditions' => sub {
-    my $product = schema()->resultset('Product')->find({ean => params->{ean}});
-    return status_not_found('product not found') unless $product;
+get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
+    my ($ean) = splat;
+    my $product = schema('cashpoint')->resultset('Product')->find({
+        ean => $ean,
+    }) || return status_not_found('product not found');
 
-    my $parser = schema->storage->datetime_parser;
+    my $parser = schema('cashpoint')->storage->datetime_parser;
     my $conditions = $product->search_related('Conditions', {
         startdate => { '<=', $parser->format_datetime(DateTime->now) },
         -or => [
@@ -120,89 +117,96 @@ get '/products/:ean/conditions' => sub {
             enddate => { '>=', $parser->format_datetime(DateTime->now) },
         ],
     }, {
-        order_by => {-asc => 'startdate'},
+        order_by => { -asc => 'startdate' },
     });
 
     my @data = ();
     while (my $c = $conditions->next) {
         push @data, {
-            conditionid => $c->id,
-            groupid     => $c->group->id,
-            userid      => $c->user,
-            quantity    => $c->quantity,
-            comment     => $c->comment,
-            premium     => $c->premium,
-            fixedprice  => $c->fixedprice,
-            startdate   => $c->startdate->datetime,
-            enddate     => $c->enddate ? $c->enddate->datetime : undef,
+            condition  => $c->id,
+            group      => $c->group->id,
+            user       => $c->user,
+            quantity   => $c->quantity,
+            comment    => $c->comment,
+            premium    => $c->premium,
+            fixedprice => $c->fixedprice,
+            startdate  => $c->startdate->datetime,
+            enddate    => $c->enddate ? $c->enddate->datetime : undef,
         };
     }
 
     return status_ok(\@data);
 };
 
-post '/products/:ean/conditions' => sub {
-    my $product = schema()->resultset('Product')->find({ean => params->{ean}});
-    return status_not_found('product not found') unless $product;
+post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
+    my ($ean) = splat;
+    my $product = schema('cashpoint')->resultset('Product')->find({
+        ean => $ean,
+    }) || return status_not_found('product not found');
+
+    my ($group, $user, $quantity, $comment, $premium, $fixedprice, $startdate, $enddate)
+        = map { s/^\s+|\s+$//g if $_; $_ } (
+            params->{group},
+            params->{user},
+            params->{quantity},
+            params->{comment},
+            params->{premium},
+            params->{fixedprice},
+            params->{startdate},
+            params->{enddate},
+        );
 
     my ($sdate, $edate);
-    eval { $sdate = Time::Piece->strptime(params->{startdate} || 0, "%d-%m-%Y"); };
+    eval { $sdate = Time::Piece->strptime($startdate || 0, "%d-%m-%Y"); };
     $sdate += $sdate->localtime->tzoffset;
-    eval { $edate = Time::Piece->strptime(params->{enddate} || 0, "%d-%m-%Y"); };
+    eval { $edate = Time::Piece->strptime($enddate || 0, "%d-%m-%Y"); };
     $edate += $edate->localtime->tzoffset;
 
     my @errors = ();
-    if (0) {
-    } if (!params->{group} || params->{group} !~ /^\d+$/) {
-        push @errors, 'group is required';
-    } if (params->{user} && params->{user} !~ /^\d+$/) {
-        push @errors, 'user is required or must be set to 0';
-    } if (params->{quantity} && (params->{quantity} !~ /^d+$/ || params->{quantity} == 0)) {
-        push @errors, 'quantity must be greater zero if specified';
-    } if (params->{comment} && params->{comment} !~ /^.{5,50}$/) {
-        push @errors, 'comment must be at least 5 and up to 50 chars long if specified';
-    } if (!params->{premium} && !params->{fixedprice}) {
-        push @errors, 'one of premium, fixedprice or both must be specified';
-    } if (params->{premium} && !isnum(params->{premium})) {
-        push @errors, 'premium must be a decimal';
-    } if (params->{fixedprice} && !isnum(params->{fixedprice})) {
-        push @errors, 'fixedprice must be a decimal';
-    } if (params->{startdate} && !$sdate) {
-        push @errors, 'startdate must follow dd-mm-yyyy formatting';
-    } if (params->{enddate} && !$edate) {
-        push @errors, 'enddate must follow dd-mm-yyyy formatting';
-    } if (params->{group} && !schema->resultset('Group')
-        ->find({groupid => params->{group}})) {
-        @errors = ('group does not exist');
+    if (!defined $group || (!isint($group) || $group == 0
+            || !schema('cashpoint')->resultset('Group')->find($group))) {
+        push @errors, 'invalid group';
+    }
+    if (defined $user && (!isint($user) || $user == 0)) {
+        push @errors, 'invalid user';
+    }
+    if (defined $quantity && (!isint($quantity) || $quantity == 0)) {
+        push @errors, 'invalid quantity';
+    }
+    if ($comment && length $comment > 50) {
+        push @errors, 'invalid comment';
+    }
+    if (!defined $premium && !defined $fixedprice) {
+        push @errors, 'invalid condition type';
+    }
+    if (defined $premium && !isnum($premium)) {
+        push @errors, 'invalid premium';
+    }
+    if (defined $fixedprice && (!isnum($fixedprice) || (isfloat($fixedprice)
+            && sprintf("%.2f", $fixedprice) ne $fixedprice))) {
+        push @errors, 'invalid fixedprice';
+    }
+    if ($startdate && !$sdate) {
+        push @errors, 'invalid startdate';
+    }
+    if ($enddate && !$edate) {
+        push @errors, 'invalid enddate';
     }
 
     return status_bad_request(\@errors) if @errors;
 
     $product->create_related('Conditions', {
-        groupid     => params->{group},
-        userid      => params->{user} ? params->{user} : undef,
-        quantity    => params->{quantity} || 0,
-        comment     => params->{comment} || undef,
-        premium     => params->{premium} || undef,
-        fixedprice  => params->{fixedprice} || undef,
-        startdate   => params->{startdate} || DateTime->now,
-        enddate     => params->{enddate} || undef,
+        groupid     => $group,
+        userid      => $user ? $user : undef,
+        quantity    => $quantity || 0,
+        comment     => $comment,
+        premium     => $premium,
+        fixedprice  => $fixedprice,
+        startdate   => $startdate || DateTime->now,
+        enddate     => $enddate,
     });
 
     return status_created();
-};
-
-del '/products/:ean/conditions/:id' => sub {
-    my $product = schema()->resultset('Product')->find({ean => params->{ean}});
-    return status_not_found('product not found') unless $product;
-
-    my $condition = $product->find_related('Conditions', { conditionid => params->{id} });
-    return status_not_found('condition not found') unless $condition;
-
-    $condition->delete;
-
-    # xxx: check if deleted
-    return status_ok();
 };
 
 42;
