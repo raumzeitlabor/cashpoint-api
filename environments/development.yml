@@ -34,9 +34,17 @@ plugins:
       options:
         RaiseError: 1
         PrintError: 1
-    benutzerdb:
-      dsn: dbi:SQLite:dbname=./benutzerdb.db
-      schema_class: BenutzerDB::Model
-      options:
-        RaiseError: 1
-        PrintError: 1
+
+  Database:
+    driver: 'mysql'
+    database: 'nutzerdb'
+    host: '127.0.0.1'
+    port: 3306
+    username: 'cashpoint'
+    password: 'JiGBV1B0AsVwDNfLZJp7cBU'
+    connection_check_threshold: 10
+    dbi_params:
+      RaiseError: 1
+      AutoCommit: 1
+    on_connect_do: ["SET NAMES 'utf8'", "SET CHARACTER SET 'utf8'" ]
+    log_queries: 1

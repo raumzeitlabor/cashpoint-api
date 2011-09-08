@@ -39,7 +39,7 @@ post '/cashcards' => sub {
         (params->{code}, params->{user}, params->{group});
 
     # FIXME: validate user
-    if (!$code || $code !~ /^[a-z0-9]{18}$/i || schema('cashpoint')
+    if (!defined $code || $code !~ /^[a-z0-9]{18}$/i || schema('cashpoint')
             ->resultset('Cashcard')->find({ code => $code})) {
         push @errors, 'invalid code';
     }
@@ -112,7 +112,7 @@ post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
     if (defined $type && $type != 0 && $type != 1) { # 0 = init, 1 = charge
         push @errors, 'invalid charge type';
     }
-    if ($remark && length $remark > 50) {
+    if (defined $remark && ($remark eq '' || length $remark > 50)) {
         push @errors, 'invalid remark';
     }
     if (!defined $amount || !isnum($amount) || (isfloat($amount)

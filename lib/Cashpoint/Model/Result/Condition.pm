@@ -69,8 +69,14 @@ __PACKAGE__->add_columns(
 
 );
 
+sub sqlt_deploy_hook {
+    my ($self, $sqlt_table) = @_;
+    $sqlt_table->add_index(name => 'conditionindex', fields =>
+        ['productid', 'groupid', 'userid', 'quantity', 'startdate', 'enddate']);
+}
+
 __PACKAGE__->set_primary_key('conditionid');
 __PACKAGE__->belongs_to('productid' => 'Cashpoint::Model::Result::Product');
 __PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');
 
-1;
+42;

@@ -52,6 +52,11 @@ sub credit {
     return sprintf("%.2f", ($credit->count ? $credit->get_column('amount')->sum : 0) +0.0);
 }
 
+sub sqlt_deploy_hook {
+    my ($self, $sqlt_table) = @_;
+    $sqlt_table->add_index(name => 'codeindex', fields => ['code']);
+}
+
 __PACKAGE__->set_primary_key('cashcardid');
 __PACKAGE__->has_many('Credit' => 'Cashpoint::Model::Result::Credit', 'cashcardid');
 __PACKAGE__->belongs_to('groupid' => 'Cashpoint::Model::Result::Group');

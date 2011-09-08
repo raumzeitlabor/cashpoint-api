@@ -34,10 +34,10 @@ post '/products' => sub {
     my ($name, $ean, $threshold) = map { s/^\s+|\s+$//g if $_; $_ }
         (params->{name}, params->{ean}, params->{threshold});
 
-    if (!$name || length $name > 30) {
+    if (!defined $name || length $name > 30) {
         push @errors, 'invalid name';
     }
-    if (!$ean || length $ean > 13 || !validate_ean($ean)) {
+    if (!defined $ean || length $ean > 13 || !validate_ean($ean)) {
         push @errors, 'invalid ean';
     } elsif (schema('cashpoint')->resultset('Product')->find({ ean => $ean})) {
         push @errors, 'product already exists';
@@ -83,7 +83,7 @@ get qr{/products/([0-9]{13}|[0-9]{8})/price} => sub {
 
     my $cashcard;
     my @errors = ();
-    if (!$code || $code !~ /^[a-z0-9]{18}$/i) {
+    if (!defined $code || $code !~ /^[a-z0-9]{18}$/i) {
         push @errors, 'invalid cashcard';
     } else {
         $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
@@ -158,9 +158,9 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
 
     my ($sdate, $edate);
     eval { $sdate = Time::Piece->strptime($startdate || 0, "%d-%m-%Y"); };
-    $sdate += $sdate->localtime->tzoffset;
+    $sdate += $sdate->localtime->tzoffset unless $@;
     eval { $edate = Time::Piece->strptime($enddate || 0, "%d-%m-%Y"); };
-    $edate += $edate->localtime->tzoffset;
+    $edate += $edate->localtime->tzoffset unless $@;
 
     my @errors = ();
     if (!defined $group || (!isint($group) || $group == 0
@@ -173,7 +173,7 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
     if (defined $quantity && (!isint($quantity) || $quantity == 0)) {
         push @errors, 'invalid quantity';
     }
-    if ($comment && length $comment > 50) {
+    if (defined $comment && ($comment eq '' || length $comment > 50)) {
         push @errors, 'invalid comment';
     }
     if (!defined $premium && !defined $fixedprice) {
@@ -186,10 +186,10 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
             && sprintf("%.2f", $fixedprice) ne $fixedprice))) {
         push @errors, 'invalid fixedprice';
     }
-    if ($startdate && !$sdate) {
+    if (defined $startdate && ($startdate eq '' || !$sdate)) {
         push @errors, 'invalid startdate';
     }
-    if ($enddate && !$edate) {
+    if (defined $enddate && ($enddate eq '' || !$edate)) {
         push @errors, 'invalid enddate';
     }
 
@@ -202,8 +202,8 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
         comment     => $comment,
         premium     => $premium,
         fixedprice  => $fixedprice,
-        startdate   => $startdate || DateTime->now,
-        enddate     => $enddate,
+        startdate   => $sdate || DateTime->now,
+        enddate     => $edate,
     });
 
     return status_created();

@@ -168,7 +168,12 @@ post '/baskets/:id/items' => sub {
         price       => $price->value,
     });
 
-    return status_created({id => $item->id});
+    return status_created({
+        id        => $item->id,
+        name      => $product->name,
+        price     => $price->value,
+        condition => $price->condition,
+    });
 };
 
 del '/baskets/:id/items/:itemid' => sub{

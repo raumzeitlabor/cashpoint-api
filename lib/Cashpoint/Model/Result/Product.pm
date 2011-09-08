@@ -69,11 +69,11 @@ sub price {
                 productid => $self->id,
                 productid => undef,
             ],
+            groupid => $cashcard->group->id,
             -or => [
                 userid => $cashcard->user,
                 userid => undef,
             ],
-            groupid => $cashcard->group->id,
             -or => [
                 quantity => { '>=', $quantity },
                 quantity => undef,
@@ -85,19 +85,22 @@ sub price {
             ],
         ],
     }, {
-        order_by => { -desc => qw/productid groupid userid quantity/ },
-    }); # FIXME: with valid date
+            order_by => { -desc => qw/productid groupid userid quantity startdate/ },
+    });
 
     return undef unless $conditions->count;
 
     # FIXME: use weighted average?
     my $base = $self->search_related('Purchases', {
     }, {
-        #+select  => [ \'me.price/me.amount' ], # FIXME: is there a more elegant way?
+        #+select  => [ \'me.price/me.amount' ],
         #+as      => [ qw/unitprice/ ],
         order_by => { -desc => 'purchaseid' },
         rows     => 5,
     })->get_column('price')->func('AVG');
+
+    # if no purchases have been made, no price can be calculated
+    return undef unless $base;
 
     # FIXME: calculate prices for all conditions and cache them?
     # prices are always rounded up to the tenth digit for moar profit
@@ -116,6 +119,11 @@ sub price {
         return undef;
     }
 };
+
+sub sqlt_deploy_hook {
+    my ($self, $sqlt_table) = @_;
+    $sqlt_table->add_index(name => 'eanindex', fields => ['ean']);
+}
 
 __PACKAGE__->set_primary_key('productid');
 __PACKAGE__->has_many('Purchases' => 'Cashpoint::Model::Result::Purchase',

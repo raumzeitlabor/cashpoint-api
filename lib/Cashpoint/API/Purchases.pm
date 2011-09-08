@@ -7,17 +7,20 @@ use Data::Dumper;
 use Dancer ':syntax';
 use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
-
-use Time::Piece;
 use Scalar::Util::Numeric qw/isnum/;
+use Time::Piece;
+
+use Cashpoint::Utils;
 
 our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
-get '/products/:ean/purchases' => sub {
-    my $product = schema()->resultset('Product')->search({ean => params->{ean}})
-        ->single;
+get qr{/products/([0-9]{13}|[0-9]{8})/purchases} => sub {
+    return status_bad_request('invalid ean') unless validate_ean(my $ean = splat);
+    my $product = schema('cashpoint')->resultset('Product')->search({
+        ean => $ean,
+    })->single;
     return status_not_found('product not found') unless $product;
 
     my $purchases = $product->search_related('Purchases', {}, {
@@ -38,7 +41,7 @@ get '/products/:ean/purchases' => sub {
     return status_ok(\@data);
 };
 
-post '/products/:ean/purchases' => sub {
+post qr{/products/([0-9]{13}|[0-9]{8})/purchases} => sub {
     my $product = schema()->resultset('Product')->search({ean => params->{ean}})
         ->single;
     return status_not_found('product not found') unless $product;
@@ -87,7 +90,8 @@ post '/products/:ean/purchases' => sub {
     return status_created({id => $insert->id});
 };
 
-del '/products/:ean/purchases/:id' => sub {
+del qr{/products/([0-9]{13}|[0-9]{8})/purchases/([\d]+)} => sub {
+    my ($ean, $id) = splat;
     my $product = schema()->resultset('Product')->search({ean => params->{ean}})
         ->single;
     return status_not_found('product not found') unless $product;

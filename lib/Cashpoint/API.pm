@@ -1,6 +1,7 @@
 package Cashpoint::API;
 use Dancer ':syntax';
 
+use Cashpoint::API::Auth;
 use Cashpoint::API::Groups;
 use Cashpoint::API::Baskets;
 use Cashpoint::API::Products;

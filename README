@@ -1,0 +1,209 @@
+# API
+
+## Groups
+### GET /groups
+returns a list of all groups registered on the cashpoint, ordered by ascending id
+
+#### Response
+
+    [
+        {
+            "name" : "Members",
+            "group" : 1
+        },
+        //...
+    ]
+
+### POST /groups
+creates a new group with given name and returns its id upon success
+
+#### Parameters
+
+    name        name of the group (length: 1-30)
+
+#### Response
+
+    {
+        "id" : 1337
+    }
+
+
+### DELETE /groups/:id
+deletes the group identified by its id
+
+### GET /groups/:id/memberships
+returns the memberships of a given group ordered ascending by their membership id
+
+#### Response
+
+    [
+        {
+            "id" : 1,
+            "user" : 1
+        }
+    ]
+
+### POST /groups/:id/memberships
+adds a user to a given group and returns the new membership id upon success
+
+#### Parameters
+
+    user        id of the user to be added
+
+#### Response
+
+    {
+        "id" : 2
+    }
+
+### DELETE /groups/:id/memberships/:mid
+deletes the membership with given id from the specified group
+
+
+## Cashcards
+### GET /cashcards
+returns a list of all registered cashcards ordered descending by their activation date
+
+#### Response
+
+    [
+        {
+            "disabled" : 0,
+            "activated_on" : "2011-09-03T19:42:26",
+            "user" : 1,
+            "group" : 1,
+            "code" : "adf2K9ab8kLo924ixR"
+        },
+        // ...
+    ]
+
+### POST /cashcards
+creates a new cashcard
+
+#### Parameters
+
+    code        the code of the cashcard to be registered (length: 18)
+    user        the id of the user to which the cashcard shall be assigned (optional)
+                hint: if the user is not specified, the card will be anonymous
+    group       the group to which this cashcard will be tied
+
+### PUT /cashcards/:code/{disable,enable}
+disables or enables the given cashcard so it can no longer be used / be used again
+
+### GET /cashcards/:code/credit
+returns the credit amount that is charged on the cashcard together with its
+availability status
+
+#### Response
+
+    {
+        "amount" : "13.37",
+        "status" : "released|frozen"
+    }
+
+### POST /cashcards/:code/credit
+charges the cashcard with the given amount
+
+#### Parameters
+
+    type        the type of the charge (optional)
+    remark      additional information regarding the charge
+    amount      amount to be charged to the card (may be negative)
+
+
+## Products
+### GET /products
+returns the list of products available in the cashpoint, ordered ascending by their
+name
+
+#### Response
+
+    [
+        {
+            "ean" : "4029764001807",
+            "name" : "Club Mate",
+            "added_on" : "2011-09-06T19:25:33",
+            "stock" : 0
+        }
+        // ...
+    ]
+
+
+### POST /products
+adds a new product to the catalog
+
+#### Parameters
+
+    name        name of the product (max. length: 30)
+    ean         the ean of the product (must be EAN8 or EAN13)
+    threshold   the threshold used to indicate low stocks (optional, defaults to 0)
+
+### GET /products/:ean
+returns some information on the product
+
+#### Response
+
+    {
+        "threshold" : 20,
+        "ean" : "4029764001715",
+        "name" : "Club Mate",
+        "stock" : 0,
+        "added_on" : "2011-09-06T20:34:21"
+    }
+
+### GET /products/:ean/price?cashcard=:code
+returns the price of the product as it would be drawn from the cashcard specified
+and the condition used to calculate it
+
+#### Response
+
+    {
+        "price" : 2.30,
+        "condition" : 1337
+    }
+
+### GET /products/:ean/conditions
+returns all conditions registered for this product
+
+#### Response
+
+    [
+        {
+            "group" : 1,
+            "fixedprice" : null,
+            "comment" : null,
+            "enddate" : null,
+            "premium" : 1.2,
+            "quantity" : null,
+            "user" : null,
+            "startdate" : "2011-09-06T20:46:50",
+            "condition" : 1
+        }
+        // ...
+    ]
+
+### POST /products/:ean/conditions
+creates a new condition for the product
+
+#### Parameters
+
+    group       group for which the condition will be valid
+    user        user for which the condition will be valid (optional, defaults to all)
+    quantity    minimum quantity for the condition to be valid (optional, defaults to 0)
+    comment     comment describing the condition (optional)
+    premium     premium that with which the base will be multiplied
+    fixedprice  either fixed price or royalty that will be charged
+    startdate   date as of which the condition will be valid (optional, defaults to now)
+    enddate     date as of which the condition will become invalid (optional)
+
+Either premium or fixed price or both must be set. The semantics are as follows:
+
+      premium | fixedprice | result
+    ----------+------------+------------------------
+        set   |    unset   | base*premium
+    ----------|------------+------------------------
+       unset  |     set    | fixedprice
+    ----------+------------+------------------------
+        set   |     set    | base*premium+fixedprice
+
+###
