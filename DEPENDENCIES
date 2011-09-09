@@ -7,3 +7,4 @@
 * Dancer::Plugin::Database
 * Dancer::Plugin::REST
 * Algorithm::CheckDigits
+* Crypt::SaltedHash

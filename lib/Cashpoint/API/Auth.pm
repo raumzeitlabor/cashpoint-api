@@ -29,78 +29,88 @@ post '/auth' => sub {
     my @errors = ();
     my $cashcard;
 
-    if ($auth_mode == 1 && (!defined $code || $code !~ /^[a-z0-9]{18}$/i)) {
-        push @errors, 'invalid code';
-    } else {
-        $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
-            code     => $code,
-            disabled => 0,
-        });
+    # validate input data
+    if ($auth_mode == 1) {
+        if (!defined $code || $code !~ /^[a-z0-9]{18}$/i) {
+            push @errors, 'invalid code';
+        } else {
+            # check if the cashcard specified is valid
+            $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
+                code     => $code,
+                disabled => 0,
+            });
 
-        push @errors, 'invalid code' unless $cashcard;
-    }
-    if ($auth_mode == 1 && (!defined $pin || !isint($pin))) {
-        push @errors, 'invalid pin';
+            push @errors, 'invalid code' unless $cashcard;
+        }
+
+        if (!defined $pin || !isint($pin)) {
+            push @errors, 'invalid pin';
+        }
+    } elsif ($auth_mode == 2) {
+        push @errors, 'invalid password' unless (length $passwd);
+        push @errors, 'invalid username' unless (length $username);
     }
 
     return status_bad_request(\@errors) if @errors;
 
     my ($userid, $auth);
-    my $parser = schema->storage->datetime_parser;
+    my @query_params = ();
+
+    # define query parameters
     if ($auth_mode == 1) {
-
-        # check for failed login attempts within last five minutes
-        my $five_mins_ago = DateTime->now->add( minutes => -5 );
-        my $fails = schema('cashpoint')->resultset('Auth')->search({
-            code       => $code,
-            login_date => { '>=', $parser->format_datetime($five_mins_ago) },
-            token      => undef,
-        });
-
-        return status(403) if $fails->count == 3;
-
-        # log the attempt to the database
-        $auth = schema('cashpoint')->resultset('Auth')->create({
-            code       => $code,
-            auth_mode  => $auth_mode,
-            login_date => DateTime->now,
-        });
-
-        $userid = auth_by_pin($cashcard->user, $pin);
-
-        # the user is not authorized for this card
-        return status(401) if (defined $userid && $cashcard->user != $userid);
-
+        @query_params = (code => $code);
     } elsif ($auth_mode == 2) {
-
-        # check for failed login attempts within last five minutes
-        my $five_mins_ago = DateTime->now->add( minutes => -5 );
-        my $fails = schema('cashpoint')->resultset('Auth')->search({
-            username   => $username,
-            login_date => { '>=', $parser->format_datetime($five_mins_ago) },
-            token      => undef,
-        });
-
-        return status(403) if $fails->count == 3;
-
-        # log the attempt to the database
-        $auth = schema('cashpoint')->resultset('Auth')->create({
-            username   => $username,
-            auth_mode  => $auth_mode,
-            login_date => DateTime->now,
-        });
-
-        $userid = auth_by_passwd($username, $passwd);
+        @query_params = (username => $username);
     }
 
-    return status(401) unless defined $userid;
+    my $parser = schema->storage->datetime_parser;
+
+    # check for failed login attempts within last five minutes
+    my $some_time_ago = DateTime->now->add( minutes => - setting('FAILED_LOGIN_LOCK') || 5);
+    my $fails = schema('cashpoint')->resultset('Auth')->search({
+        @query_params,
+        login_date => { '>=', $parser->format_datetime($some_time_ago) },
+        token      => undef,
+    });
+
+    return status(403) if $fails->count == (setting('MAX_FAILED_ATTEMPTS') || 3);
+
+    # log the attempt to the database
+    $auth = schema('cashpoint')->resultset('Auth')->create({
+        @query_params,
+        auth_mode  => $auth_mode,
+        login_date => DateTime->now,
+    });
+
+    $userid = auth_by_pin($cashcard->user, $pin) if $auth_mode == 1;
+    $userid = auth_by_passwd($username, $passwd) if $auth_mode == 2;
+
+    # the user is not authorized for this card
+    if ($auth_mode == 1 && defined $userid && $cashcard->user != $userid) {
+        return status(401);
+    } elsif (not defined $userid) {
+        return status(401);
+    }
+
+    # generate a valid token
+    my $token;
+    do {
+        $token = generate_token();
+    } while (schema('cashpoint')->resultset('Auth')->find({ token => $token }));
 
     # mark the auth information as valid
-    my $token = generate_token();
     $auth->user($userid);
     $auth->token($token);
     $auth->last_action(DateTime->now);
     $auth->update();
+
+    # try to set cookie
+    (my $hostname = request->host) =~ s/:\d+//;
+    cookie(
+        auth_token => $token,
+        expires    => (time + setting('FAILED_LOGIN_LOCK')*60),
+        domain     => $hostname,
+    );
 
     return {user => int($userid), role => 'user', auth_token => $token};
 };
