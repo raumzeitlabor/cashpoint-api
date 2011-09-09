@@ -16,6 +16,9 @@ our $VERSION = '0.1';
 set serializer => 'JSON';
 
 get '/groups' => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my $groups = schema('cashpoint')->resultset('Group')->ordered;
 
     my @data = ();
@@ -30,6 +33,9 @@ get '/groups' => sub {
 };
 
 post '/groups' => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     (my $name = params->{name} || "") =~ s/^\s+|\s+$//g;
 
     my @errors = ();
@@ -47,6 +53,9 @@ post '/groups' => sub {
 };
 
 del qr{/groups/([\d]+)} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($groupid) = splat;
     my $group = schema('cashpoint')->resultset('Group')->find($groupid);
     return status_not_found('group not found') unless $group;
@@ -56,6 +65,9 @@ del qr{/groups/([\d]+)} => sub {
 };
 
 get qr{/groups/([\d]+)/memberships} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($groupid) = splat;
     my $group = schema('cashpoint')->resultset('Group')->find($groupid);
     return status_not_found('group not found') unless $group;
@@ -78,6 +90,9 @@ get qr{/groups/([\d]+)/memberships} => sub {
 };
 
 post qr{/groups/([\d]+)/memberships} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($groupid) = splat;
     my $group = schema('cashpoint')->resultset('Group')->find($groupid);
     return status_not_found('invalid group') unless $group;
@@ -110,6 +125,9 @@ post qr{/groups/([\d]+)/memberships} => sub {
 };
 
 del qr{/groups/([\d]+)/memberships/([\d]+)} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($groupid, $membershipid) = splat;
     my $group = schema('cashpoint')->resultset('Group')->find($groupid);
     return status_not_found('group not found') unless $group;

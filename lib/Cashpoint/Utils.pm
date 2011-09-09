@@ -1,11 +1,14 @@
+package Cashpoint::Utils;
+
 use strict;
 use warnings;
 
 use Exporter 'import';
 use Algorithm::CheckDigits;
 
-our @EXPORTS = qw/validate_ean/;
-our @EXPORTS_OK = qw/generate_token/;
+use Cashpoint::Context;
+
+our @EXPORT_OK = qw/generate_token validate_ean/;
 
 my $ean_validator = CheckDigits('ean');
 
@@ -18,4 +21,3 @@ sub generate_token {
 }
 
 42;
-

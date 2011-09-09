@@ -16,6 +16,9 @@ our $VERSION = '0.1';
 set serializer => 'JSON';
 
 get '/cashcards' => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my $cashcards = schema('cashpoint')->resultset('Cashcard')->ordered;
 
     my @data = ();
@@ -33,6 +36,9 @@ get '/cashcards' => sub {
 };
 
 post '/cashcards' => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my @errors = ();
 
     my ($code, $user, $group) = map { s/^\s+|\s+$//g if $_; $_ }
@@ -64,6 +70,9 @@ post '/cashcards' => sub {
 };
 
 put qr{/cashcards/([a-zA-Z0-9]{18})/disable} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($code) = splat;
     my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
         code => $code,
@@ -76,6 +85,9 @@ put qr{/cashcards/([a-zA-Z0-9]{18})/disable} => sub {
 };
 
 put qr{/cashcards/([a-zA-Z0-9]{18})/enable} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($code) = splat;
     my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
         code => $code,
@@ -87,6 +99,9 @@ put qr{/cashcards/([a-zA-Z0-9]{18})/enable} => sub {
 };
 
 get qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($code) = splat;
     my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
         code => $code,
@@ -99,6 +114,9 @@ get qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
 };
 
 post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
+    return status(401) unless Cashpoint::Context->get('token');
+    return status(403) if Cashpoint::Context->get('role') ne 'admin';
+
     my ($code) = splat;
     my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
         code => $code,
