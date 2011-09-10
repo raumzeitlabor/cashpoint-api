@@ -5,9 +5,19 @@ use warnings;
 
 use base 'DBIx::Class::ResultSet';
 
-sub ordered {
+use Cashpoint::Context;
+
+sub ctx_ordered {
     my $self = shift;
-    return $self->search({}, {
+
+    # only display cashcards registered to the current user
+    my @params = ();
+    Cashpoint::Context->set(role => 'user');
+    if (Cashpoint::Context->get('role') ne 'admin') {
+        @params = (userid => Cashpoint::Context->get('userid'))
+    }
+
+    return $self->search({@params}, {
         order_by => { -desc => 'activationdate' },
     });
 }

@@ -13,9 +13,6 @@ use Scalar::Util::Numeric qw/isnum/;
 our $VERSION = '0.1';
 
 get '/products' => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-    return status(403) if Cashpoint::Context->get('role') ne 'admin';
-
     my $products = schema('cashpoint')->resultset('Product')->ordered;
 
     my @data = ();
@@ -32,9 +29,6 @@ get '/products' => sub {
 };
 
 post '/products' => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-    return status(403) if Cashpoint::Context->get('role') ne 'admin';
-
     my @errors = ();
 
     my ($name, $ean, $threshold) = map { s/^\s+|\s+$//g if $_; $_ }
@@ -65,9 +59,6 @@ post '/products' => sub {
 };
 
 get qr{/products/([0-9]{13}|[0-9]{8})} => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-    return status(403) if Cashpoint::Context->get('role') ne 'admin';
-
     my ($ean) = splat;
     my $product = schema('cashpoint')->resultset('Product')->find({
         ean => $ean,
@@ -83,9 +74,6 @@ get qr{/products/([0-9]{13}|[0-9]{8})} => sub {
 };
 
 get qr{/products/([0-9]{13}|[0-9]{8})/price} => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-    return status(403) if Cashpoint::Context->get('role') ne 'admin';
-
     my ($ean) = splat;
     my $product = schema('cashpoint')->resultset('Product')->find({
         ean => $ean,
@@ -116,9 +104,6 @@ get qr{/products/([0-9]{13}|[0-9]{8})/price} => sub {
 };
 
 get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-    return status(403) if Cashpoint::Context->get('role') ne 'admin';
-
     my ($ean) = splat;
     my $product = schema('cashpoint')->resultset('Product')->find({
         ean => $ean,
@@ -154,9 +139,6 @@ get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
 };
 
 post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-    return status(403) if Cashpoint::Context->get('role') ne 'admin';
-
     my ($ean) = splat;
     my $product = schema('cashpoint')->resultset('Product')->find({
         ean => $ean,

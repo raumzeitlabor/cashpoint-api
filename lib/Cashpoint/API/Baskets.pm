@@ -15,8 +15,6 @@ our $VERSION = '0.1';
 set serializer => 'JSON';
 
 post '/baskets' => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-
     my @errors = ();
     if (!params->{cashcard}) {
         push @errors, 'invalid cashcard specified';
@@ -39,13 +37,6 @@ post '/baskets' => sub {
 };
 
 get '/baskets/:id' => sub {
-    return status(401) unless Cashpoint::Context->get('token');
-
-#    my @params ();
-#    if (Cashpoint::Context->get('role') eq 'user') {
-#        @params = (userid => Cashpoint::Context->get('userid'));
-#    }
-
     my $basket = schema('cashpoint')->resultset('Basket')->find({
         basketid => params->{id},
     });
