@@ -40,10 +40,6 @@ before sub {
 
         return unless $session;
 
-        # update the session
-        $session->last_action(DateTime->now);
-        $session->update;
-
         # save the session
         Cashpoint::Context->set(userid => $session->user);
         Cashpoint::Context->set(token  => $session->token);
@@ -54,6 +50,19 @@ before sub {
         my @found = grep { $_ eq Cashpoint::Context->get('userid') } @roles;
         Cashpoint::Context->set(role => @found == 1 ? 'admin' : 'user');
     }
+};
+
+after sub {
+    my $response = shift;
+
+    # only update session if call succeeded
+    return unless $response->status =~ m/^2/;
+
+    schema('cashpoint')->resultset('Auth')->find({
+        token => Cashpoint::Context->get('token'),
+    })->update({
+        last_action => DateTime->now,
+    });
 };
 
 any qr{.*} => sub {
