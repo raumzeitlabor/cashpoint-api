@@ -14,6 +14,9 @@ our @EXPORT = qw/auth_by_passwd auth_by_pin/;
 sub auth_by_passwd {
     my ($username, $passwd) = @_;
 
+    # check if connection to benutzerdb is alive
+    eval { database; }; return undef if $@;
+
     my $user = database->quick_select('nutzer', { handle => $username });
 
     if (!defined $user || !Crypt::SaltedHash->validate($user->{passwort}, $passwd)) {
@@ -25,6 +28,9 @@ sub auth_by_passwd {
 
 sub auth_by_pin {
     my ($userid, $pin) = @_;
+
+    # check if connection to benutzerdb is alive
+    eval { database; }; return undef if $@;
 
     my $user = database->quick_select('nutzer', {
         id  => $userid,
