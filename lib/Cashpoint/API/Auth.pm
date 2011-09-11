@@ -7,13 +7,19 @@ use Data::Dumper;
 use Dancer ':syntax';
 use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
+use Dancer::Plugin::Database;
 
 use Cashpoint::Utils qw/generate_token/;
+use Cashpoint::AuthGuard;
 use BenutzerDB::Auth;
+use Cashpoint::Context;
 
 post '/auth' => sub {
     my ($code, $pin, $username, $passwd) = map { s/^\s+|\s+$//g if $_; $_ }
         (params->{code}, params->{pin}, params->{username}, params->{passwd});
+
+    # check if connection to benutzerdb is alive
+    eval { database; }; return status(503) if $@;
 
     # 1 = PIN, 2 = USER/PW
     my $auth_mode = 0;
@@ -75,13 +81,6 @@ post '/auth' => sub {
 
     return status(403) if $fails->count == (setting('MAX_FAILED_ATTEMPTS') || 3);
 
-    # log the attempt to the database
-    $auth = schema('cashpoint')->resultset('Auth')->create({
-        @query_params,
-        auth_mode  => $auth_mode,
-        login_date => DateTime->now,
-    });
-
     $userid = auth_by_pin($cashcard->user, $pin) if $auth_mode == 1;
     $userid = auth_by_passwd($username, $passwd) if $auth_mode == 2;
 
@@ -92,27 +91,62 @@ post '/auth' => sub {
         return status(401);
     }
 
-    # generate a valid token
-    my $token;
-    do {
-        $token = generate_token();
-    } while (schema('cashpoint')->resultset('Auth')->find({ token => $token }));
+    # check if there is already a valid session, in which case it'll be returned
+    $auth = schema('cashpoint')->resultset('Auth')->find({
+        @query_params,
+        login_date => { '>=', $parser->format_datetime($some_time_ago) },
+        token      => { '!=', undef },
+        userid     => $userid,
+    });
 
-    # mark the auth information as valid
-    $auth->user($userid);
-    $auth->token($token);
-    $auth->last_action(DateTime->now);
-    $auth->update();
+    if (not defined $auth) {
+        # log the attempt to the database
+        $auth = schema('cashpoint')->resultset('Auth')->create({
+            @query_params,
+            auth_mode  => $auth_mode,
+            login_date => DateTime->now,
+        });
+
+        # generate a valid token
+        my $token;
+        do {
+            $token = generate_token();
+        } while (schema('cashpoint')->resultset('Auth')->find({ token => $token }));
+
+        # mark the auth information as valid
+        $auth->user($userid);
+        $auth->token($token);
+        $auth->update();
+    }
+
+    # hint: last action will be automatically updated by after {} hook
 
     # try to set cookie
     (my $hostname = request->host) =~ s/:\d+//;
     cookie(
-        auth_token => $token,
+        auth_token => $auth->token,
         expires    => (time + setting('FAILED_LOGIN_LOCK')*60),
         domain     => $hostname,
     );
 
-    return {user => int($userid), role => 'user', auth_token => $token};
+    # check the role
+    my @roles = @{setting('ADMINISTRATORS')};
+    my @found = grep { $_ eq $userid } @roles;
+
+    # return the information
+    return {
+        user => int($userid),
+        role => @found == 1 ? 'admin' : 'user',
+        auth_token => $auth->token
+    };
+};
+
+del '/auth' => authenticated sub {
+    my $session = schema('cashpoint')->resultset('Auth')->find({
+        auth_token => Cashpoint::Context->get('token'),
+    })->delete;
+
+    return status_ok();
 };
 
 42;
