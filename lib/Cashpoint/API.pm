@@ -29,7 +29,7 @@ before sub {
         my $parser = schema->storage->datetime_parser;
 
         # check for valid session
-        my $some_time_ago = DateTime->now->add(
+        my $some_time_ago = DateTime->now(time_zone => 'local')->add(
             minutes => - setting('FAILED_LOGIN_LOCK') || 5
         );
 
@@ -58,11 +58,22 @@ after sub {
     # only update session if call succeeded
     return unless $response->status =~ m/^2/;
 
+    my $token = Cashpoint::Context->get('token');
+    my $valid_until = DateTime->now(time_zone => 'local')->datetime;
+
     schema('cashpoint')->resultset('Auth')->find({
-        token => Cashpoint::Context->get('token'),
+        token => $token,
     })->update({
-        last_action => DateTime->now,
+        last_action => $valid_until,
     });
+
+    # try to set cookie
+    (my $hostname = request->host) =~ s/:\d+//;
+    cookie(
+        auth_token => $token,
+        expires    => $valid_until,
+        domain     => $hostname,
+    );
 };
 
 any qr{.*} => sub {

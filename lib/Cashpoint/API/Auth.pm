@@ -72,7 +72,10 @@ post '/auth' => sub {
     my $parser = schema->storage->datetime_parser;
 
     # check for failed login attempts within last five minutes
-    my $some_time_ago = DateTime->now->add( minutes => - setting('FAILED_LOGIN_LOCK') || 5);
+    my $some_time_ago = DateTime->now(time_zone => 'local')->add(
+        minutes => - setting('FAILED_LOGIN_LOCK') || 5
+    );
+
     my $fails = schema('cashpoint')->resultset('Auth')->search({
         @query_params,
         login_date => { '>=', $parser->format_datetime($some_time_ago) },
@@ -104,7 +107,7 @@ post '/auth' => sub {
         $auth = schema('cashpoint')->resultset('Auth')->create({
             @query_params,
             auth_mode  => $auth_mode,
-            login_date => DateTime->now,
+            login_date => DateTime->now(time_zone => 'local'),
         });
 
         # generate a valid token
@@ -120,24 +123,22 @@ post '/auth' => sub {
     }
 
     # hint: last action will be automatically updated by after {} hook
+    Cashpoint::Context->set('token', $auth->token);
 
-    # try to set cookie
-    (my $hostname = request->host) =~ s/:\d+//;
-    cookie(
-        auth_token => $auth->token,
-        expires    => (time + setting('FAILED_LOGIN_LOCK')*60),
-        domain     => $hostname,
-    );
+    # return the information
+    my $valid_until = DateTime->now(time_zone => 'local')->add(
+        minutes => 2*(setting('FAILED_LOGIN_LOCK') || 5)
+    )->datetime;
 
     # check the role
     my @roles = @{setting('ADMINISTRATORS')};
     my @found = grep { $_ eq $userid } @roles;
 
-    # return the information
     return {
-        user => int($userid),
-        role => @found == 1 ? 'admin' : 'user',
-        auth_token => $auth->token
+        user        => int($userid),
+        role        => @found == 1 ? 'admin' : 'user',
+        auth_token  => $auth->token,
+        valid_until => $valid_until,
     };
 };
 
