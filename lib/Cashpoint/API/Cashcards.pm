@@ -15,13 +15,14 @@ use Scalar::Util::Numeric qw/isfloat/;
 use Cashpoint::Context;
 use Cashpoint::CashcardGuard;
 use BenutzerDB::User;
+use BenutzerDB::Auth;
 
 our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
-get '/cashcards' => authenticated sub {
-    my $cashcards = schema('cashpoint')->resultset('Cashcard')->ctx_ordered;
+get '/cashcards' => protected sub {
+    my $cashcards = schema('cashpoint')->resultset('Cashcard')->ordered;
 
     my @data = ();
     while (my $c = $cashcards->next) {
@@ -37,7 +38,7 @@ get '/cashcards' => authenticated sub {
     return status_ok(\@data);
 };
 
-post '/cashcards' => authenticated sub {
+post '/cashcards' => protected 'admin', sub {
     # check if connection to benutzerdb is alive
     eval { database; }; return status(503) if $@;
 
@@ -49,7 +50,7 @@ post '/cashcards' => authenticated sub {
             ->resultset('Cashcard')->find({ code => $code})) {
         push @errors, 'invalid code';
     }
-    if (defined $user && (!isint($user) || !get_user($user))) {
+    if (!defined $user || !isint($user) || !get_user($user)) {
         push @errors, 'invalid user';
     }
     if (!defined $group || (!isint($group) || $group == 0
@@ -63,47 +64,61 @@ post '/cashcards' => authenticated sub {
         code           => $code,
         groupid        => $group,
         userid         => $user,
-        activationdate => DateTime->now,
+        activationdate => DateTime->now(time_zone => 'local'),
     });
 
     return status_created();
 };
 
-put qr{/cashcards/([a-zA-Z0-9]{18})/disable} => authenticated valid_cashcard, sub {
+put qr{/cashcards/([a-zA-Z0-9]{18})/(dis|en)able} => protected 'admin', valid_cashcard sub {
     my $cashcard = shift;
-    $cashcard->update({disabled => 1});
+    my (undef, $mode) = splat;
+    $cashcard->update({disabled => $mode eq 'en' ? 0 : 1});
     return status_ok();
 };
 
-put qr{/cashcards/([a-zA-Z0-9]{18})/enable} => sub {
-    my ($code) = splat;
-    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
-        code => $code,
-    }) || return status_not_found("cashcard not found");
-    return status_bad_request("cashcard already enabled") unless $cashcard->disabled;
+put qr{/cashcards/([a-zA-Z0-9]{18})/unlock} => protected valid_enabled_cashcard sub {
+    my $cashcard = shift;
 
-    $cashcard->update({disabled => 0});
+    # if it is already unlocked, stop here.
+    my $cardid = Cashpoint::Context->get('cardid');
+    return status_ok() if (defined $cardid && $cashcard->id != $cardid);
+
+    # check if pin is valid
+    (my $pin = params->{pin} || "") =~ s/^\s+|\s+$//g;
+    if (!$pin || $pin !~ /^\d+$/) {
+        return status_bad_request('invalid pin');
+    }
+
+    # check if connection to benutzerdb is alive
+    eval { database; }; return status(503) if $@;
+
+    # validate pin
+    my $userid = auth_by_pin($cashcard->user, $pin);
+
+    if (!defined $userid || $userid != $cashcard->user) {
+        return status(401);
+    }
+
+    my $authid = Cashpoint::Context->get('authid');
+    schema('cashpoint')->resultset('Auth')->find($authid)->update({
+        code       => $cashcard->code,
+        cashcardid => $cashcard->id,
+    });
+
     return status_ok();
 };
 
-get qr{/cashcards/([a-zA-Z0-9]{18})/credits} => sub {
-    my ($code) = splat;
-    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
-        code => $code,
-    }) || return status_not_found("cashcard not found");
-
+get qr{/cashcards/([a-zA-Z0-9]{18})/credits} => protected 'admin', valid_cashcard sub {
+    my $cashcard = shift;
     return status_ok({
         amount => $cashcard->credit,
         status => $cashcard->disabled == 0 ? "released" : "frozen",
     });
 };
 
-post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
-    my ($code) = splat;
-    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
-        code => $code,
-    }) || return status_not_found("cashcard not found");
-    return status_bad_request("cashcard disabled") if $cashcard->disabled;
+post qr{/cashcards/([a-zA-Z0-9]{18})/credits} => protected 'admin', valid_cashcard sub {
+    my $cashcard = shift;
 
     my ($type, $remark, $amount) = map { s/^\s+|\s+$//g if $_; $_ }
         (params->{type}, params->{remark}, params->{amount});
@@ -126,7 +141,7 @@ post qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
         chargingtype => $type || 1,
         remark       => $remark || undef,
         amount       => sprintf("%.2f", $amount),
-        date         => DateTime->now,
+        date         => DateTime->now(time_zone => 'local'),
     });
 
     # lock card if credit is negative and lock it if necessary

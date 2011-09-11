@@ -28,6 +28,12 @@ __PACKAGE__->add_columns(
         is_nullable => 1,
     },
 
+    cashcardid => {
+        accessor    => 'cashcard',
+        data_type   => 'id',
+        is_nullable => 1,
+    },
+
     username => {
         data_type   => 'varchar',
         size        => 30,
@@ -58,5 +64,6 @@ __PACKAGE__->add_columns(
 );
 
 __PACKAGE__->set_primary_key('authid');
+__PACKAGE__->belongs_to('cashcardid', 'Cashpoint::Model::Result::Cashcard');
 
 42;

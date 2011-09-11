@@ -1,6 +1,9 @@
 package Cashpoint::API;
 
 use Dancer ':syntax';
+use Dancer::SharedData;
+use Dancer::Cookies;
+
 use Cashpoint::Context;
 use Cashpoint::API::Auth;
 use Cashpoint::API::Groups;
@@ -41,9 +44,14 @@ before sub {
         return unless $session;
 
         # save the session
+        Cashpoint::Context->set(authid => $session->id);
         Cashpoint::Context->set(userid => $session->user);
         Cashpoint::Context->set(token  => $session->token);
-        Cashpoint::Context->set(code   => $session->code);
+
+        # before adding the cashcard to the context, check whether it's enabled
+        if ($session->cashcard && $session->cashcard->disabled == 0) {
+            Cashpoint::Context->set(cashcard => $session->cashcard);
+        }
 
         # find out role
         my @roles = @{setting('ADMINISTRATORS')};
@@ -58,20 +66,24 @@ after sub {
     # only update session if call succeeded
     return unless $response->status =~ m/^2/;
 
-    my $token = Cashpoint::Context->get('token');
-    my $valid_until = DateTime->now(time_zone => 'local')->datetime;
+    # only update session is signed in at all
+    return unless defined Cashpoint::Context->get('authid');
+
+    my $valid_until = DateTime->now(time_zone => 'local')->add(
+        minutes => setting('FAILED_LOGIN_LOCK') || 5,
+    );
 
     schema('cashpoint')->resultset('Auth')->find({
-        token => $token,
+        authid => Cashpoint::Context->get('authid'),
     })->update({
         last_action => $valid_until,
     });
 
     # try to set cookie
     (my $hostname = request->host) =~ s/:\d+//;
-    cookie(
-        auth_token => $token,
-        expires    => $valid_until,
+    set_cookie(
+        auth_token => Cashpoint::Context->get('token'),
+        expires    => time + (setting('FAILED_LOGIN_LOCK') || 5)*60,
         domain     => $hostname,
     );
 };

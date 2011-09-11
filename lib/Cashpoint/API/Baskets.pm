@@ -9,51 +9,30 @@ use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
 
 use DateTime;
+use Algorithm::CheckDigits;
+use Cashpoint::AccessGuard;
+use Cashpoint::BasketGuard;
 
 our $VERSION = '0.1';
 
-set serializer => 'JSON';
+post '/baskets' => protected sub {
+    # make sure /baskets is not accessed from external
+    return status(403) unless request->address eq '127.0.0.1';
 
-post '/baskets' => sub {
-    my @errors = ();
-    if (!params->{cashcard}) {
-        push @errors, 'invalid cashcard specified';
+    unless (Cashpoint::Context->get('cashcard')) {
+        return status_bad_request('no cashcard available');
     }
-
-    my $cashcard;
-    unless ($cashcard = schema('cashpoint')->resultset('Cashcard')
-            ->find({ code => params->{cashcard}, disabled => 0, })) {
-        @errors = 'cashcard not found or disabled';
-    }
-
-    return status_bad_request(\@errors) if @errors;
 
     my $basket = schema('cashpoint')->resultset('Basket')->create({
-        cashcardid => $cashcard->id,
-        date       => DateTime->now,
+        cashcardid => Cashpoint::Context->get('cashcard'),
+        date       => DateTime->now(time_zone => 'local'),
     });
 
     return status_created({id => $basket->id});
 };
 
-get '/baskets/:id' => sub {
-    my $basket = schema('cashpoint')->resultset('Basket')->find({
-        basketid => params->{id},
-    });
-
-    return status_not_found('basket not found') unless $basket;
-
-    my @errors = ();
-    if (!params->{cashcard}) {
-        push @errors, 'no cashcard specified';
-    }
-
-    my $cashcard;
-    if ($basket->cashcard->code ne params->{cashcard} || $basket->cashcard->disabled == 1) {
-        @errors = 'invalid cashcard or cashcard disabled';
-    }
-
-    return status_bad_request(\@errors) if @errors;
+get qr{/baskets/([\d]+)} => protected valid_basket sub {
+    my $basket = shift;
 
     return status_ok({
         items => $basket->items,
@@ -62,25 +41,8 @@ get '/baskets/:id' => sub {
     });
 };
 
-del '/baskets/:id' => sub {
-    my $basket = schema('cashpoint')->resultset('Basket')->find({
-        basketid => params->{id},
-    });
-
-    return status_not_found('basket not found') unless $basket;
-
-    my @errors = ();
-    if (!params->{cashcard}) {
-        push @errors, 'no cashcard specified';
-    }
-
-    my $cashcard;
-    if ($basket->cashcard->code ne params->{cashcard}
-        || $basket->cashcard->disabled == 1) {
-        @errors = 'invalid cashcard or cashcard disabled';
-    }
-
-    return status_bad_request(\@errors) if @errors;
+del qr{/baskets/([\d]+)} => protected valid_basket sub {
+    my $basket = shift;
 
     eval {
         schema('cashpoint')->txn_do(sub {
@@ -93,25 +55,8 @@ del '/baskets/:id' => sub {
     return status_ok();
 };
 
-get '/baskets/:id/items' => sub {
-    my $basket = schema('cashpoint')->resultset('Basket')->find({
-        basketid => params->{id},
-    });
-
-    return status_not_found('basket not found') unless $basket;
-
-    my @errors = ();
-    if (!params->{cashcard}) {
-        push @errors, 'no cashcard specified';
-    }
-
-    my $cashcard;
-    if ($basket->cashcard->code ne params->{cashcard}
-        || $basket->cashcard->disabled == 1) {
-        @errors = 'invalid cashcard or cashcard disabled';
-    }
-
-    return status_bad_request(\@errors) if @errors;
+get qr{/baskets/([\d]+)/items} => protected valid_basket sub {
+    my $basket = shift;
 
     my @data = ();
     my $items = $basket->search_related('BasketItems');
@@ -127,34 +72,22 @@ get '/baskets/:id/items' => sub {
     return status_ok(\@data);
 };
 
-post '/baskets/:id/items' => sub {
-    my $basket = schema('cashpoint')->resultset('Basket')->find({
-        basketid => params->{id},
-    });
+post qr{/baskets/([\d]+)/items} => protected valid_basket sub {
+    my $basket = shift;
 
-    return status_not_found('basket not found') unless $basket;
+    (my $ean = params->{ean} || "") =~ s/^\s+|\s+$//g;
 
     my @errors = ();
-    my ($cashcard, $product);
-
-    if (0) {
-    } if (!params->{cashcard}) {
-        push @errors, 'no cashcard specified';
-    } elsif (!($cashcard = schema('cashpoint')->resultset('Cashcard')
-            ->find({ code => params->{cashcard}, disabled => 0, }))) {
-        return status_bad_request('cashcard not found or disabled');
-    } if ($basket->cashcard->code ne params->{cashcard}) {
-        return status_bad_request('invalid cashcard');
-    } if (!params->{ean} || params->{ean} !~ /^[a-z0-9]{5,30}/i) {
-        push @errors, 'invalid ean specified';
-    } elsif (!($product = schema('cashpoint')->resultset('Product')
-            ->find({ ean => params->{ean}}))) {
-        return status_bad_request('product not found');
+    my $product;
+    if (!defined $ean || length $ean > 13 || !validate_ean($ean)) {
+        push @errors, 'invalid ean';
+    } elsif (!($product = schema('cashpoint')->resultset('Product')->find({ ean => $ean}))) {
+        push @errors, 'invalid product';
     }
 
     return status_bad_request(\@errors) if @errors;
 
-    my $price = $product->price($cashcard, $basket->get_item_quantity($product));
+    my $price = $product->price($basket->cashcard, $basket->get_item_quantity($product));
     return status_bad_request('product currently not available for sale') unless $price;
 
     my $credit = $basket->cashcard->credit;
@@ -176,29 +109,12 @@ post '/baskets/:id/items' => sub {
     });
 };
 
-del '/baskets/:id/items/:itemid' => sub{
-    my $basket = schema('cashpoint')->resultset('Basket')->find({
-        basketid => params->{id},
-    });
-
-    return status_not_found('basket not found') unless $basket;
-
-    my @errors = ();
-
-    if (0) {
-    } if (!params->{cashcard}) {
-        push @errors, 'no cashcard specified';
-    } elsif (!schema('cashpoint')->resultset('Cashcard')
-            ->find({ code => params->{cashcard}, disabled => 0, })) {
-        return status_bad_request('cashcard not found or disabled');
-    } if ($basket->cashcard->code ne params->{cashcard}) {
-        return status_bad_request('invalid cashcard');
-    }
-
-    return status_bad_request(\@errors) if @errors;
+del qr{/baskets/([\d]+)/items/([\d]+)} => protected valid_basket sub {
+    my $basket = shift;
+    my (undef, $itemid) = splat;
 
     my $item = $basket->find_related('BasketItems', {
-        basketitemid => params->{itemid},
+        basketitemid => $itemid,
     });
 
     return status_not_found('item not found') unless $item;
@@ -207,33 +123,15 @@ del '/baskets/:id/items/:itemid' => sub{
     return status_ok();
 };
 
-put '/baskets/:id/checkout' => sub {
-    my $basket = schema('cashpoint')->resultset('Basket')->find({
-        basketid => params->{id},
-    });
-
-    return status_not_found('basket not found') unless $basket;
-
-    my @errors = ();
-    my $cashcard;
-
-    if (0) {
-    } if (!params->{cashcard}) {
-        push @errors, 'no cashcard specified';
-    } elsif (!($cashcard = schema('cashpoint')->resultset('Cashcard')
-            ->find({ code => params->{cashcard}, disabled => 0, }))) {
-        return status_bad_request('cashcard not found or disabled');
-    } if ($basket->cashcard->code ne params->{cashcard}) {
-        return status_bad_request('invalid cashcard');
-    }
-    return status_bad_request(\@errors) if @errors;
+put qr{/baskets/([\d]+)/checkout} => protected valid_basket sub {
+    my $basket = shift;
 
     schema('cashpoint')->txn_do(sub {
         # create sale
         my $sale = schema('cashpoint')->resultset('Sale')->create({
             cashcardid => $basket->cashcard->id,
             total      => $basket->value,
-            saledate   => DateTime->now,
+            saledate   => DateTime->now(time_zone => 'local'),
             basketdate => $basket->date,
         });
 
@@ -256,14 +154,14 @@ put '/baskets/:id/checkout' => sub {
         $sale->cashcard->create_related('Credit', {
             chargingtype => 2,
             amount       => - $basket->value,
-            date         => DateTime->now,
+            date         => DateTime->now(time_zone => 'local'),
         });
 
         $items->delete;
         $basket->delete;
     });
 
-    return status_bad_request('an error occured, please try again later') if $@;
+    return send_error('an error occured, please try again later') if $@;
     return status_ok();
 };
 

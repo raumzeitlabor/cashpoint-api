@@ -52,7 +52,7 @@ post '/products' => sub {
         ean       => $ean,
         name      => $name,
         threshold => $threshold || 0,
-        added_on  => DateTime->now,
+        added_on  => DateTime->now(time_zone => 'local'),
     });
 
     return status_created();
@@ -202,7 +202,7 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
         comment     => $comment,
         premium     => $premium,
         fixedprice  => $fixedprice,
-        startdate   => $sdate || DateTime->now,
+        startdate   => $sdate || DateTime->now(time_zone => 'local'),
         enddate     => $edate,
     });
 

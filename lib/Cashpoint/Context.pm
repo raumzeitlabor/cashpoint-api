@@ -22,6 +22,7 @@ sub reset {
 
 sub get {
     my (undef, $key) = @_;
+    #print Dumper $self->{data};
     return $self->{data}->{$key};
 }
 

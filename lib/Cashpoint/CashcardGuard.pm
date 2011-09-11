@@ -32,9 +32,9 @@ sub valid_enabled_cashcard {
         my ($code) = splat;
         my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
             code     => $code,
-            disabled => 1,
-        }) || return status_not_found("cashcard not found");;
+        }) || return status_not_found("cashcard not found");
 
+        return status(403) if $cashcard->disabled;
         return &$sub($cashcard, @args);
     }
 }

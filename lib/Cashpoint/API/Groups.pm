@@ -13,19 +13,19 @@ use DateTime;
 use Scalar::Util::Numeric qw/isint/;
 
 use BenutzerDB::User;
-use Cashpoint::AuthGuard;
+use Cashpoint::AccessGuard;
 use Cashpoint::GroupGuard;
 
 our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
-get '/groups' => authenticated 'admin', sub {
+get '/groups' => protected 'admin', sub {
     my @groups = schema('cashpoint')->resultset('Group')->ordered;
     return status_ok(\@groups);
 };
 
-post '/groups' => authenticated 'admin', sub {
+post '/groups' => protected 'admin', sub {
     (my $name = params->{name} || "") =~ s/^\s+|\s+$//g;
 
     my @errors = ();
@@ -42,7 +42,7 @@ post '/groups' => authenticated 'admin', sub {
     return status_created({id => $group->id});
 };
 
-del qr{/groups/([\d]+)} => authenticated 'admin', valid_group sub {
+del qr{/groups/([\d]+)} => protected 'admin', valid_group sub {
     my $group  = shift;
 
     schema('cashpoint')->txn_do(sub {
@@ -54,13 +54,13 @@ del qr{/groups/([\d]+)} => authenticated 'admin', valid_group sub {
     return status_ok();
 };
 
-get qr{/groups/([\d]+)/memberships} => authenticated 'admin', valid_group sub {
+get qr{/groups/([\d]+)/memberships} => protected 'admin', valid_group sub {
     my $group  = shift;
     my @data = schema('cashpoint')->resultset('Membership')->ordered($group->id);
     return status_ok(\@data);
 };
 
-post qr{/groups/([\d]+)/memberships} => authenticated 'admin', valid_group sub {
+post qr{/groups/([\d]+)/memberships} => protected 'admin', valid_group sub {
     my $group = shift;
     (my $user = params->{user} || "") =~ s/^\s+|\s+$//g;
 
@@ -85,7 +85,7 @@ post qr{/groups/([\d]+)/memberships} => authenticated 'admin', valid_group sub {
     return status_created({id => $membership->id});
 };
 
-del qr{/groups/([\d]+)/memberships/([\d]+)} => authenticated 'admin', valid_group sub {
+del qr{/groups/([\d]+)/memberships/([\d]+)} => protected 'admin', valid_group sub {
     my $group = shift;
     my (undef, $membershipid) = splat;
 

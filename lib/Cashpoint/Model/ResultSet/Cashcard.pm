@@ -7,12 +7,11 @@ use base 'DBIx::Class::ResultSet';
 
 use Cashpoint::Context;
 
-sub ctx_ordered {
+sub ordered {
     my $self = shift;
 
     # only display cashcards registered to the current user
     my @params = ();
-    Cashpoint::Context->set(role => 'user');
     if (Cashpoint::Context->get('role') ne 'admin') {
         @params = (userid => Cashpoint::Context->get('userid'))
     }

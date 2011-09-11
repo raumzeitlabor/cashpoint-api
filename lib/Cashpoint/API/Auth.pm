@@ -10,7 +10,7 @@ use Dancer::Plugin::DBIC;
 use Dancer::Plugin::Database;
 
 use Cashpoint::Utils qw/generate_token/;
-use Cashpoint::AuthGuard;
+use Cashpoint::AccessGuard;
 use BenutzerDB::Auth;
 use Cashpoint::Context;
 
@@ -119,15 +119,19 @@ post '/auth' => sub {
         # mark the auth information as valid
         $auth->user($userid);
         $auth->token($token);
+
+        # save cashcard id in case cashcard was authorized
+        $auth->cashcard($cashcard->id) if $auth_mode == 1;
+
         $auth->update();
     }
 
     # hint: last action will be automatically updated by after {} hook
-    Cashpoint::Context->set('token', $auth->token);
+    Cashpoint::Context->set('authid', $auth->id);
 
     # return the information
     my $valid_until = DateTime->now(time_zone => 'local')->add(
-        minutes => 2*(setting('FAILED_LOGIN_LOCK') || 5)
+        minutes => setting('FAILED_LOGIN_LOCK') || 5
     )->datetime;
 
     # check the role
@@ -142,9 +146,9 @@ post '/auth' => sub {
     };
 };
 
-del '/auth' => authenticated sub {
+del '/auth' => protected sub {
     my $session = schema('cashpoint')->resultset('Auth')->find({
-        auth_token => Cashpoint::Context->get('token'),
+        auth_token => Cashpoint::Context->get('authid'),
     })->delete;
 
     return status_ok();

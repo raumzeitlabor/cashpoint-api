@@ -1,4 +1,4 @@
-package Cashpoint::AuthGuard;
+package Cashpoint::AccessGuard;
 
 use strict;
 use warnings;
@@ -8,14 +8,14 @@ use Data::Dumper;
 
 use Dancer ':syntax';
 
-our @EXPORT = qw/authenticated/;
+our @EXPORT = qw/protected/;
 
-sub authenticated {
+sub protected {
     my ($level, $sub, @args) = @_;
 
     return sub {
         # check for auth_token
-        return status(401) unless Cashpoint::Context->get('token');
+        return status(401) unless Cashpoint::Context->get('authid');
 
         # $level is optional, so check if $cb moved one arg slot
         if (ref $level eq 'CODE') {
@@ -28,3 +28,5 @@ sub authenticated {
         return &$sub(@args);
     }
 }
+
+42;
