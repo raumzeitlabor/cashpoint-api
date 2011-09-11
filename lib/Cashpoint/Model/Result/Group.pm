@@ -22,5 +22,6 @@ __PACKAGE__->add_columns(
 );
 
 __PACKAGE__->set_primary_key('groupid');
+__PACKAGE__->has_many('Memberships', 'Cashpoint::Model::Result::Membership', 'groupid');
 
-1;
+42;

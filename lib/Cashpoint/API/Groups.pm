@@ -7,28 +7,22 @@ use Data::Dumper;
 use Dancer ':syntax';
 use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
+use Dancer::Plugin::Database;
 
 use DateTime;
 use Scalar::Util::Numeric qw/isint/;
 
+use BenutzerDB::User;
 use Cashpoint::AuthGuard;
+use Cashpoint::GroupGuard;
 
 our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
 get '/groups' => authenticated 'admin', sub {
-    my $groups = schema('cashpoint')->resultset('Group')->ordered;
-
-    my @data = ();
-    while (my $g = $groups->next) {
-        push @data, {
-            group => $g->group,
-            name  => $g->name,
-        };
-    };
-
-    return status_ok(\@data);
+    my @groups = schema('cashpoint')->resultset('Group')->ordered;
+    return status_ok(\@groups);
 };
 
 post '/groups' => authenticated 'admin', sub {
@@ -48,79 +42,56 @@ post '/groups' => authenticated 'admin', sub {
     return status_created({id => $group->id});
 };
 
-del qr{/groups/([\d]+)} => authenticated 'admin', sub {
-    my ($groupid) = splat;
-    my $group = schema('cashpoint')->resultset('Group')->find($groupid);
-    return status_not_found('group not found') unless $group;
+del qr{/groups/([\d]+)} => authenticated 'admin', valid_group sub {
+    my $group  = shift;
 
-    $group->delete;
+    schema('cashpoint')->txn_do(sub {
+        $group->delete_related('Memberships');
+        $group->delete;
+    });
+
+    return status(500) if $@;
     return status_ok();
 };
 
-get qr{/groups/([\d]+)/memberships} => authenticated 'admin', sub {
-    my ($groupid) = splat;
-    my $group = schema('cashpoint')->resultset('Group')->find($groupid);
-    return status_not_found('group not found') unless $group;
-
-    my $memberships = schema('cashpoint')->resultset('Membership')->search({
-        groupid => $groupid,
-    }, {
-        order_by => { -asc => 'membershipid' },
-    });
-
-    my @data = ();
-    while (my $m = $memberships->next) {
-        push @data, {
-            id   => $m->id,
-            user => $m->user,
-        };
-    }
-
+get qr{/groups/([\d]+)/memberships} => authenticated 'admin', valid_group sub {
+    my $group  = shift;
+    my @data = schema('cashpoint')->resultset('Membership')->ordered($group->id);
     return status_ok(\@data);
 };
 
-post qr{/groups/([\d]+)/memberships} => authenticated 'admin', sub {
-    my ($groupid) = splat;
-    my $group = schema('cashpoint')->resultset('Group')->find($groupid);
-    return status_not_found('invalid group') unless $group;
-
+post qr{/groups/([\d]+)/memberships} => authenticated 'admin', valid_group sub {
+    my $group = shift;
     (my $user = params->{user} || "") =~ s/^\s+|\s+$//g;
 
-    my @errors = ();
+    # check if connection to benutzerdb is alive
+    eval { database; }; return status(503) if $@;
 
-    # FIXME: validate user
-    if (!defined $user || !isint($user) || $user == 0) {
+    my @errors = ();
+    if (!defined $user || !isint($user) || !get_user($user)) {
         push @errors, 'invalid user';
     } else {
-        my $already = schema('cashpoint')->resultset('Membership')->find({
-            groupid => $groupid,
+        $group->find_related('Memberships', {
             userid  => $user,
-        });
-
-        if ($already) {
-            push @errors, 'user is already member of that group';
-        }
+        }) && push @errors, 'user is already member of that group';
     }
 
     return status_bad_request(\@errors) if @errors;
 
-    my $membership = schema('cashpoint')->resultset('Membership')->create({
-        groupid => $groupid,
+    my $membership = $group->create_related('Membership', {
         userid  => $user,
     });
 
     return status_created({id => $membership->id});
 };
 
-del qr{/groups/([\d]+)/memberships/([\d]+)} => authenticated 'admin', sub {
-    my ($groupid, $membershipid) = splat;
-    my $group = schema('cashpoint')->resultset('Group')->find($groupid);
-    return status_not_found('group not found') unless $group;
+del qr{/groups/([\d]+)/memberships/([\d]+)} => authenticated 'admin', valid_group sub {
+    my $group = shift;
+    my (undef, $membershipid) = splat;
 
     # watch out: use search instead of find, because we need to match the group again
-    my $membership = schema('cashpoint')->resultset('Membership')->search({
+    my $membership = $group->search_related('Memberships', {
         membershipid => $membershipid,
-        groupid      => $groupid,
     });
 
     return status_not_found('membership not found') unless $membership->count;

@@ -7,11 +7,14 @@ use Data::Dumper;
 use Dancer ':syntax';
 use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
+use Dancer::Plugin::Database;
 
 use DateTime;
 use Scalar::Util::Numeric qw/isfloat/;
 
 use Cashpoint::Context;
+use Cashpoint::CashcardGuard;
+use BenutzerDB::User;
 
 our $VERSION = '0.1';
 
@@ -34,18 +37,19 @@ get '/cashcards' => authenticated sub {
     return status_ok(\@data);
 };
 
-post '/cashcards' => sub {
-    my @errors = ();
+post '/cashcards' => authenticated sub {
+    # check if connection to benutzerdb is alive
+    eval { database; }; return status(503) if $@;
 
     my ($code, $user, $group) = map { s/^\s+|\s+$//g if $_; $_ }
         (params->{code}, params->{user}, params->{group});
 
-    # FIXME: validate user
+    my @errors = ();
     if (!defined $code || $code !~ /^[a-z0-9]{18}$/i || schema('cashpoint')
             ->resultset('Cashcard')->find({ code => $code})) {
         push @errors, 'invalid code';
     }
-    if (defined $user && (!isint($user) || $user == 0)) {
+    if (defined $user && (!isint($user) || !get_user($user))) {
         push @errors, 'invalid user';
     }
     if (!defined $group || (!isint($group) || $group == 0
@@ -65,14 +69,8 @@ post '/cashcards' => sub {
     return status_created();
 };
 
-put qr{/cashcards/([a-zA-Z0-9]{18})/disable} => sub {
-    my ($code) = splat;
-    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
-        code => $code,
-    });
-    return status_not_found("cashcard not found") unless $cashcard;
-    return status_bad_request("cashcard already disabled") if $cashcard->disabled;
-
+put qr{/cashcards/([a-zA-Z0-9]{18})/disable} => authenticated valid_cashcard, sub {
+    my $cashcard = shift;
     $cashcard->update({disabled => 1});
     return status_ok();
 };
@@ -88,7 +86,7 @@ put qr{/cashcards/([a-zA-Z0-9]{18})/enable} => sub {
     return status_ok();
 };
 
-get qr{/cashcards/([a-zA-Z0-9]{18})/credit} => sub {
+get qr{/cashcards/([a-zA-Z0-9]{18})/credits} => sub {
     my ($code) = splat;
     my $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
         code => $code,
