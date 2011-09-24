@@ -1,0 +1,30 @@
+function cashpoint_auth() {
+    BASE=http://localhost:3000
+
+    echo "Cashpoint-API Authentication"
+
+    echo ""
+    echo -n "  Username: "
+    read username
+    stty -echo
+    echo -n "  Password: "
+    read passwd
+    stty echo
+    echo "\n"
+
+    OUTPUT=$(curl -sS -X POST "$BASE/auth?username=$username&passwd=$passwd" 2>&1)
+
+    if [[ $? != 0 ]]; then
+        echo "Error: $OUTPUT"
+        unset AUTH_TOKEN
+        return
+    elif [[ $OUTPUT = "401" ]] || [[ $OUTPUT = "403" ]]; then
+        echo "Authorization failed."
+        unset AUTH_TOKEN
+        return
+    fi;
+
+    echo "Successfully authorized.";
+    ENVVARS=$(perl -MJSON -e "print 'AUTH_TOKEN='.from_json('$OUTPUT')->{auth_token}")
+    export $ENVVARS
+}
