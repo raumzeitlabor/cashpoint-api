@@ -4,6 +4,8 @@ use Dancer ':syntax';
 use Dancer::SharedData;
 use Dancer::Cookies;
 
+use Log::Log4perl qw( :easy );
+
 use Cashpoint::Context;
 use Cashpoint::API::Auth;
 use Cashpoint::API::Groups;
@@ -16,48 +18,50 @@ our $VERSION = '0.1';
 
 set serializer => 'JSON';
 
+INFO "Cashpoint-API starting up";
+
 before sub {
+    # log request?
+    INFO request->method.' => '.request->path.' (by '.request->address.')';
+
     # reset the context
     Cashpoint::Context->reset;
 
-    # ensure user is authenticated if trying to access anything but /auth
-    if (request->path_info !~ m#^/auth#) {
-        # query param takes precedence
-        my $auth_token =  params->{auth_token} || cookie('auth_token');
-        return unless $auth_token;
+    # query param takes precedence
+    my $auth_token =  params->{auth_token} || cookie('auth_token');
+    return unless $auth_token;
 
-        # ignore if auth_token contains unknown characters
-        return if defined $auth_token && $auth_token =~ m/^[a-z0-9]{20}$/;
+    # ignore if auth_token contains unknown characters
+    return if defined $auth_token && $auth_token =~ m/^[a-z0-9]{20}$/;
 
-        my $parser = schema->storage->datetime_parser;
+    my $parser = schema->storage->datetime_parser;
 
-        # check for valid session
-        my $some_time_ago = DateTime->now(time_zone => 'local')->add(
-            minutes => - setting('FAILED_LOGIN_LOCK') || 5
-        );
+    # check for valid session
+    my $some_time_ago = DateTime->now(time_zone => 'local')->add(
+        minutes => - setting('FAILED_LOGIN_LOCK') || 5
+    );
 
-        my $session = schema('cashpoint')->resultset('Auth')->find({
-            token       => $auth_token,
-            last_action => { '>=', $parser->format_datetime($some_time_ago) },
-        });
+    my $session = schema('cashpoint')->resultset('Session')->find({
+        token       => $auth_token,
+        last_action => { '>=', $parser->format_datetime($some_time_ago) },
+    });
 
-        return unless $session;
+    return unless $session;
 
-        # save the session
-        Cashpoint::Context->set(authid => $session->id);
-        Cashpoint::Context->set(userid => $session->user);
-        Cashpoint::Context->set(token  => $session->token);
+    # save the session
+    Cashpoint::Context->set(sessionid  => $session->id);
+    Cashpoint::Context->set(userid     => $session->user);
+    Cashpoint::Context->set(token      => $session->token);
 
-        # before adding the cashcard to the context, check whether it's enabled
-        if ($session->cashcard && $session->cashcard->disabled == 0) {
-            Cashpoint::Context->set(cashcard => $session->cashcard);
-        }
-
-        # find out role
-        my @roles = @{setting('ADMINISTRATORS')};
-        my @found = grep { $_ eq Cashpoint::Context->get('userid') } @roles;
-        Cashpoint::Context->set(role => @found == 1 ? 'admin' : 'user');
+    # before adding the cashcard to the context, check whether it's enabled
+    if ($session->cashcard && $session->cashcard->disabled == 0) {
+        Cashpoint::Context->set(cashcard => $session->cashcard);
     }
+
+    # find out role
+    my @roles = @{setting('ADMINISTRATORS')};
+    my @found = grep { $_ eq Cashpoint::Context->get('userid') } @roles;
+    Cashpoint::Context->set(role => @found == 1 ? 'admin' : 'user');
 };
 
 after sub {
@@ -66,15 +70,18 @@ after sub {
     # only update session if call succeeded
     return unless $response->status =~ m/^2/;
 
-    # only update session is signed in at all
-    return unless defined Cashpoint::Context->get('authid');
+    # only update session if signed in at all
+    return if not defined Cashpoint::Context->get('sessionid');
+
+    DEBUG 'setting session cookie';
 
     my $valid_until = DateTime->now(time_zone => 'local')->add(
         minutes => setting('FAILED_LOGIN_LOCK') || 5,
     );
 
-    schema('cashpoint')->resultset('Auth')->find({
-        authid => Cashpoint::Context->get('authid'),
+    # update last_action time
+    schema('cashpoint')->resultset('Session')->find({
+        sessionid => Cashpoint::Context->get('sessionid'),
     })->update({
         last_action => $valid_until,
     });
@@ -92,4 +99,4 @@ any qr{.*} => sub {
     return status(404);
 };
 
-dance;
+42;

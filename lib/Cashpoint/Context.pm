@@ -32,4 +32,9 @@ sub set {
     $self->{data}->{$data[0]} = $data[1];
 }
 
+sub unset {
+    my (undef, $key) = @_;
+    delete $self->{data}->{$key};
+}
+
 Cashpoint::Context->instance;

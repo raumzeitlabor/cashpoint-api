@@ -9,10 +9,12 @@ use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
 
 use Scalar::Util::Numeric qw/isnum/;
+use Log::Log4perl qw( :easy );
 
-our $VERSION = '0.1';
+use Cashpoint::AccessGuard;
+use Cashpoint::ProductGuard;
 
-get '/products' => sub {
+get '/products' => protected sub {
     my $products = schema('cashpoint')->resultset('Product')->ordered;
 
     my @data = ();
@@ -28,7 +30,7 @@ get '/products' => sub {
     return status_ok(\@data);
 };
 
-post '/products' => sub {
+post '/products' => protected 'admin', sub {
     my @errors = ();
 
     my ($name, $ean, $threshold) = map { s/^\s+|\s+$//g if $_; $_ }
@@ -48,21 +50,21 @@ post '/products' => sub {
 
     return status_bad_request(\@errors) if @errors;
 
-    schema('cashpoint')->resultset('Product')->create({
+    my $product = schema('cashpoint')->resultset('Product')->create({
         ean       => $ean,
         name      => $name,
         threshold => $threshold || 0,
         added_on  => DateTime->now(time_zone => 'local'),
     });
 
+    INFO 'user '.Cashpoint::Context->get('userid').' added new product '
+        .$name.' ('.$product->id.')';
+
     return status_created();
 };
 
-get qr{/products/([0-9]{13}|[0-9]{8})} => sub {
-    my ($ean) = splat;
-    my $product = schema('cashpoint')->resultset('Product')->find({
-        ean => $ean,
-    }) || return status_not_found('product not found');
+get qr{/products/([0-9]{13}|[0-9]{8})} => protected valid_product sub {
+    my $product = shift;
 
     return status_ok({
         name      => $product->name,
@@ -73,28 +75,16 @@ get qr{/products/([0-9]{13}|[0-9]{8})} => sub {
     });
 };
 
-get qr{/products/([0-9]{13}|[0-9]{8})/price} => sub {
-    my ($ean) = splat;
-    my $product = schema('cashpoint')->resultset('Product')->find({
-        ean => $ean,
-    }) || return status_not_found('product not found');
+get qr{/products/([0-9]{13}|[0-9]{8})/price} => protected valid_product sub {
+    my $product = shift;
 
-    (my $code = params->{cashcard} || "") =~ s/^\s+|\s+$//g;
-
-    my $cashcard;
-    my @errors = ();
-    if (!defined $code || $code !~ /^[a-z0-9]{18}$/i) {
-        push @errors, 'invalid cashcard';
-    } else {
-        $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
-            code     => $code,
-            disabled => 0
-        });
-
-        push @errors, 'invalid cashcard' unless $cashcard;
+    my $cashcardid = Context::Cashcard->get('cashcard');
+    if (!defined $cashcardid) {
+        status_bad_request('invalid cashcard');
     }
 
-    return status_bad_request(\@errors) if @errors;
+    # look up cashcard
+    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find($cashcardid);
 
     # price for one single unit
     my $price = $product->price($cashcard);
@@ -103,11 +93,8 @@ get qr{/products/([0-9]{13}|[0-9]{8})/price} => sub {
     return status_ok({price => $price->value, condition => $price->condition});
 };
 
-get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
-    my ($ean) = splat;
-    my $product = schema('cashpoint')->resultset('Product')->find({
-        ean => $ean,
-    }) || return status_not_found('product not found');
+get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_product sub {
+    my $product = shift;
 
     my $parser = schema('cashpoint')->storage->datetime_parser;
     my $conditions = $product->search_related('Conditions', {
@@ -138,11 +125,8 @@ get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
     return status_ok(\@data);
 };
 
-post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
-    my ($ean) = splat;
-    my $product = schema('cashpoint')->resultset('Product')->find({
-        ean => $ean,
-    }) || return status_not_found('product not found');
+post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_product sub {
+    my $product = shift;
 
     my ($group, $user, $quantity, $comment, $premium, $fixedprice, $startdate, $enddate)
         = map { s/^\s+|\s+$//g if $_; $_ } (
@@ -195,7 +179,7 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
 
     return status_bad_request(\@errors) if @errors;
 
-    $product->create_related('Conditions', {
+    my $condition = $product->create_related('Conditions', {
         groupid     => $group,
         userid      => $user ? $user : undef,
         quantity    => $quantity || 0,
@@ -205,6 +189,9 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => sub {
         startdate   => $sdate || DateTime->now(time_zone => 'local'),
         enddate     => $edate,
     });
+
+    INFO 'user '.Cashpoint::Context->get('userid').' added new condition '
+        .$condition->id.' for product '.$product->name.' ('.$product->id.')';
 
     return status_created();
 };

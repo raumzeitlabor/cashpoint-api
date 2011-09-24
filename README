@@ -1,5 +1,37 @@
 # API
 
+## Authorization
+### POST /auth
+authenticates against the BenutzerDB and returns an auth_token in case of success,
+or a 401 in case of failure. too many failed logins will result in a 403 being
+returned. authentication can either happen using username/password or cashcard/pin
+combination. the returned auth_token must be used for almost all requests as an
+authentication parameter.
+
+#### Parameters
+
+    username        username for the BenutzerDB
+    password        password for the BenutzerDB
+
+    code            code of the cashcard of the user to be logged in
+    pin             pin of your BenutzerDB account
+
+#### Response
+
+    {
+        "valid_until" : "2011-09-14T20:33:55",
+        "auth_token" : "4xy3bpaFs5gGGiBORjHO",
+        "user" : 7,
+        "role" : "user",
+        "username" : "simon"
+    }
+
+### GET /auth
+returns 200 in case the auth_token being used is valid
+
+### DELETE /auth
+deletes the current session and thus logs out the user
+
 ## Groups
 ### GET /groups
 returns a list of all groups registered on the cashpoint, ordered by ascending id
@@ -90,18 +122,18 @@ creates a new cashcard
 ### PUT /cashcards/:code/{disable,enable}
 disables or enables the given cashcard so it can no longer be used / be used again
 
-### GET /cashcards/:code/credit
-returns the credit amount that is charged on the cashcard together with its
-availability status
+### GET /cashcards/:code/credits
+returns the credit balance that is available on the cashcard together with its
+clearance status
 
 #### Response
 
     {
-        "amount" : "13.37",
+        "balance" : 13.37,
         "status" : "released|frozen"
     }
 
-### POST /cashcards/:code/credit
+### PUT /cashcards/:code/credits
 charges the cashcard with the given amount
 
 #### Parameters
@@ -110,6 +142,12 @@ charges the cashcard with the given amount
     remark      additional information regarding the charge
     amount      amount to be charged to the card (may be negative)
 
+### POST /cashcards/:code/unlock
+unlocks the given cashcard so that it can be used for purchases
+
+#### Parameters
+
+    pin         the pin to unlock the card
 
 ## Products
 ### GET /products
@@ -151,7 +189,7 @@ returns some information on the product
         "added_on" : "2011-09-06T20:34:21"
     }
 
-### GET /products/:ean/price?cashcard=:code
+### GET /products/:ean/price
 returns the price of the product as it would be drawn from the cashcard specified
 and the condition used to calculate it
 

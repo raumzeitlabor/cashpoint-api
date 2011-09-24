@@ -4,9 +4,8 @@ use strict;
 use warnings;
 
 use Exporter 'import';
-use Data::Dumper;
-
 use Dancer ':syntax';
+use Log::Log4perl qw( :easy );
 
 our @EXPORT = qw/protected/;
 
@@ -15,14 +14,20 @@ sub protected {
 
     return sub {
         # check for auth_token
-        return status(401) unless Cashpoint::Context->get('authid');
+        unless (Cashpoint::Context->get('sessionid')) {
+            WARN 'request not authorized, refusing to answer';
+            return status(401);
+        }
 
         # $level is optional, so check if $cb moved one arg slot
         if (ref $level eq 'CODE') {
             unshift @args, $sub;
             $sub = $level;
         } else {
-            return status(403) if Cashpoint::Context->get('role') ne $level;
+            if (Cashpoint::Context->get('role') ne $level) {
+                WARN 'valid session but wrong role, refusing to answer request';
+                return status(403);
+            }
         }
 
         return &$sub(@args);

@@ -29,8 +29,12 @@ __PACKAGE__->add_columns(
         is_nullable => 1,
     },
 
+    # 0 = init (transition)
+    # 1 = cash
+    # 2 = transaction
+    # 3 = transfer
     chargingtype => {
-        data_type => 'integer', # 0 = init (transition), 1 = cash, 2 = transaction
+        data_type => 'integer',
         is_numeric => 1,
         is_nullable => 0,
     },
@@ -43,22 +47,22 @@ __PACKAGE__->add_columns(
 
     date => {
         data_type => 'datetime',
+        timezone => 'local',
         is_nullable => 0,
     },
 
     amount => {
-        accessor => '_amount',
+        data_type => 'float',
+        is_numeric => 1,
+        is_nullable => 0,
+    },
+
+    balance => {
         data_type => 'float',
         is_numeric => 1,
         is_nullable => 0,
     },
 );
-
-sub amount {
-    my $self = shift;
-    return $self->_amount(@_) if @_;
-    return sprintf("%.2f", $self->_amount());
-}
 
 __PACKAGE__->set_primary_key('creditid');
 __PACKAGE__->belongs_to('cashcardid' => 'Cashpoint::Model::Result::Cashcard');

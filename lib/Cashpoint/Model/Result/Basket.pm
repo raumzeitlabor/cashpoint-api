@@ -24,6 +24,7 @@ __PACKAGE__->add_columns(
 
     date => {
         data_type => 'datetime',
+        timezone => 'local',
         is_nullable => 0,
     },
 );

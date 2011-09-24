@@ -7,15 +7,16 @@ use base 'DBIx::Class::ResultSet';
 
 sub ordered {
     my $self = shift;
-    my $groups = $self->search({}, {
+    my @groups = $self->search({}, {
         order_by => { -asc => 'groupid' }
-    });
+    })->all;
 
     my @data = ();
-    while (my $g = $groups->next) {
+    foreach my $g (@groups) {
         push @data, {
-            group => $g->group,
-            name  => $g->name,
+            id   => $g->group,
+            name => $g->name,
+            members => $g->search_related('Memberships')->count,
         };
     };
 

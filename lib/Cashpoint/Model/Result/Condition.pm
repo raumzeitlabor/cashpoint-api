@@ -59,11 +59,13 @@ __PACKAGE__->add_columns(
 
     startdate => {
         data_type => 'datetime',
+        timezone => 'local',
         is_nullable => 0,
     },
 
     enddate => {
         data_type => 'datetime',
+        timezone => 'local',
         is_nullable => 1,
     },
 

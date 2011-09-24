@@ -7,19 +7,18 @@ use Data::Dumper;
 use Dancer ':syntax';
 use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
+use Log::Log4perl qw( :easy );
 
 use DateTime;
 use Algorithm::CheckDigits;
+
 use Cashpoint::AccessGuard;
 use Cashpoint::BasketGuard;
 
-our $VERSION = '0.1';
-
 post '/baskets' => protected sub {
-    # make sure /baskets is not accessed from external
-    return status(403) unless request->address eq '127.0.0.1';
-
     unless (Cashpoint::Context->get('cashcard')) {
+        WARN 'refusing to create new basket for session '
+            .Cashpoint::Context->get('sessionid').'; cashcard not unlocked';
         return status_bad_request('no cashcard available');
     }
 
@@ -51,7 +50,10 @@ del qr{/baskets/([\d]+)} => protected valid_basket sub {
         });
     };
 
-    return send_error('internal error', 500) if ($@); # FIXME: log
+    if ($@) {
+        ERROR 'could not delete basket: '.$@;
+        return send_error('internal error', 500);
+    }
     return status_ok();
 };
 
@@ -63,8 +65,8 @@ get qr{/baskets/([\d]+)/items} => protected valid_basket sub {
     while (my $i = $items->next) {
         push @data, {
             id          => $i->id,
-            productid   => $i->product->id,
-            conditionid => $i->condition->id,
+            product     => $i->product->id,
+            condition   => $i->condition->id,
             price       => $i->price,
         };
     }
@@ -88,10 +90,12 @@ post qr{/baskets/([\d]+)/items} => protected valid_basket sub {
     return status_bad_request(\@errors) if @errors;
 
     my $price = $product->price($basket->cashcard, $basket->get_item_quantity($product));
-    return status_bad_request('product currently not available for sale') unless $price;
+    return status_not_found('no price could be determined') unless $price;
 
-    my $credit = $basket->cashcard->credit;
-    if ($credit - $basket->value - $price->value < 0) {
+    my $balance = $basket->cashcard->balance;
+    if ($balance - $basket->value - $price->value < 0) {
+        WARN 'not enough credit available on cashcard '.$basket->cashcard->code
+            .'; '.($balance - $basket->value - $price->value).' EUR missing';
         return status_bad_request('insufficient credit balance')
     }
 
@@ -120,11 +124,15 @@ del qr{/baskets/([\d]+)/items/([\d]+)} => protected valid_basket sub {
     return status_not_found('item not found') unless $item;
 
     $item->delete;
+    INFO 'deleted basket item '.$itemid;
     return status_ok();
 };
 
 put qr{/baskets/([\d]+)/checkout} => protected valid_basket sub {
     my $basket = shift;
+
+    INFO 'checking out basket '.$basket->id.' of cashcard '
+        .$basket->cashcard->code.' (user '.$basket->cashcard->userid.')';
 
     schema('cashpoint')->txn_do(sub {
         # create sale
@@ -161,7 +169,11 @@ put qr{/baskets/([\d]+)/checkout} => protected valid_basket sub {
         $basket->delete;
     });
 
-    return send_error('an error occured, please try again later') if $@;
+    if ($@) {
+        return send_error('an error occured, please try again later');
+        ERROR 'could not checkout basket; transaction failed! '.$@;
+    }
+
     return status_ok();
 };
 

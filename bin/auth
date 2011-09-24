@@ -12,14 +12,10 @@ function cashpoint_auth() {
     stty echo
     echo "\n"
 
-    OUTPUT=$(curl -sS -X POST "$BASE/auth?username=$username&passwd=$passwd" 2>&1)
+    OUTPUT=$(curl -sfS -X POST "$BASE/auth?username=$username&passwd=$passwd" 2>&1)
 
     if [[ $? != 0 ]]; then
         echo "Error: $OUTPUT"
-        unset AUTH_TOKEN
-        return
-    elif [[ $OUTPUT = "401" ]] || [[ $OUTPUT = "403" ]]; then
-        echo "Authorization failed."
         unset AUTH_TOKEN
         return
     fi;

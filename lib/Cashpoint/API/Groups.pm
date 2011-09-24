@@ -11,14 +11,11 @@ use Dancer::Plugin::Database;
 
 use DateTime;
 use Scalar::Util::Numeric qw/isint/;
+use Log::Log4perl qw( :easy );
 
 use BenutzerDB::User;
 use Cashpoint::AccessGuard;
 use Cashpoint::GroupGuard;
-
-our $VERSION = '0.1';
-
-set serializer => 'JSON';
 
 get '/groups' => protected 'admin', sub {
     my @groups = schema('cashpoint')->resultset('Group')->ordered;
@@ -39,6 +36,8 @@ post '/groups' => protected 'admin', sub {
         name  => $name,
     });
 
+    INFO 'user '.Cashpoint::Context->get('userid').' creates new group "'.$name.'"';
+
     return status_created({id => $group->id});
 };
 
@@ -50,7 +49,14 @@ del qr{/groups/([\d]+)} => protected 'admin', valid_group sub {
         $group->delete;
     });
 
-    return status(500) if $@;
+    if ($@) {
+        ERROR 'could not delete group '.$group->name.' ('.$group->id.'): '.$@;
+        return status(500);
+    }
+
+    INFO 'user '.Cashpoint::Context->get('userid').' deleted group '
+        .$group->name.' ('.$group->id.')';
+
     return status_ok();
 };
 
@@ -78,9 +84,12 @@ post qr{/groups/([\d]+)/memberships} => protected 'admin', valid_group sub {
 
     return status_bad_request(\@errors) if @errors;
 
-    my $membership = $group->create_related('Membership', {
+    my $membership = $group->create_related('Memberships', {
         userid  => $user,
     });
+
+    INFO 'user '.Cashpoint::Context->get('userid').' added user '.$user.' to'
+        .' group '.$group->name.' ('.$group->id.')';
 
     return status_created({id => $membership->id});
 };
@@ -96,7 +105,12 @@ del qr{/groups/([\d]+)/memberships/([\d]+)} => protected 'admin', valid_group su
 
     return status_not_found('membership not found') unless $membership->count;
 
+    my ($userid, $groupid) = ($membership->userid, $membership->groupid);
     $membership->delete;
+
+    INFO 'user '.Cashpoint::Context->get('userid').' removed user '
+        .$userid.' from group '.$groupid;
+
     return status_ok();
 };
 

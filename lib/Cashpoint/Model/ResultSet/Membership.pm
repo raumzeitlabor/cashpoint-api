@@ -5,6 +5,8 @@ use warnings;
 
 use base 'DBIx::Class::ResultSet';
 
+use BenutzerDB::User;
+
 sub ordered {
     my ($self, $groupid) = @_;
 
@@ -16,9 +18,12 @@ sub ordered {
 
     my @data = ();
     while (my $m = $memberships->next) {
+        my $user = get_user($m->id);
         push @data, {
-            id   => $m->id,
-            user => $m->user,
+            user => {
+                id   => $user->{userid},
+                name => $user->{username},
+            }
         };
     }
 

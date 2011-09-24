@@ -37,6 +37,7 @@ __PACKAGE__->add_columns(
 
     activationdate => {
         data_type => 'datetime',
+        timezone => 'local',
         is_nullable => 0,
     },
 
@@ -46,11 +47,67 @@ __PACKAGE__->add_columns(
     },
 );
 
-sub credit {
+sub balance {
     my $self = shift;
-    my $credit = $self->search_related('Credit', {});
-    return sprintf("%.2f", ($credit->count ? $credit->get_column('amount')->sum : 0) +0.0);
+    my $credit = $self->search_related('Credit', {}, {
+        select   => qw/balance/,
+        order_by => { -desc => 'creditid' },
+        rows     => 1,
+    });
+
+    return ($credit->count ? $credit->first->get_column('balance') : 0);
 }
+
+sub transfer {
+    my ($self, $recipient, $amount, $reason) = @_;
+
+    $self->result_source->schema->txn_do(sub {
+        $self->create_related('Credit', {
+            chargingtype => 3,
+            amount       => - $amount,
+            date         => DateTime->now(time_zone => 'local'),
+            balance      => $self->balance - $amount,
+            remark       => $reason,
+        });
+
+        my $recipientcard = $self->result_source->schema->resultset('Cashcard')->find({
+            code => $recipient,
+        });
+
+        $self->result_source->schema->txn_rollback unless $recipientcard;
+
+        $recipientcard->create_related('Credit', {
+            chargingtype => 3,
+            amount       => $amount,
+            date         => DateTime->now(time_zone => 'local'),
+            balance      => $recipientcard->balance + $amount,
+            remark       => $reason,
+        });
+    });
+
+    die $@ if $@;
+}
+
+sub transfers {
+    my $self = shift;
+
+    my $transfers = $self->search_related("Credit", {
+        chargingtype => 3
+    }, {
+        order_by => { -desc => "creditid" },
+    });
+
+    my @data = ();
+    while (my $t = $transfers->next) {
+        push @data, {
+            remark => $t->remark,
+            date   => $t->date->datetime,
+            amount => $t->amount,
+        };
+    }
+
+    return @data;
+};
 
 sub sqlt_deploy_hook {
     my ($self, $sqlt_table) = @_;

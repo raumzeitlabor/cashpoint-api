@@ -11,36 +11,25 @@ use Dancer::Plugin::Database;
 
 use DateTime;
 use Scalar::Util::Numeric qw/isfloat/;
+use Log::Log4perl qw( :easy );
 
 use Cashpoint::Context;
 use Cashpoint::CashcardGuard;
 use BenutzerDB::User;
 use BenutzerDB::Auth;
 
-our $VERSION = '0.1';
-
-set serializer => 'JSON';
-
 get '/cashcards' => protected sub {
-    my $cashcards = schema('cashpoint')->resultset('Cashcard')->ordered;
-
-    my @data = ();
-    while (my $c = $cashcards->next) {
-        push @data, {
-            code         => $c->code,
-            group        => $c->group->id,
-            user         => $c->user,
-            activated_on => $c->activationdate->datetime,
-            disabled     => $c->disabled,
-        };
-    }
-
-    return status_ok(\@data);
+    my @cashcards = schema('cashpoint')->resultset('Cashcard')->ctx_ordered;
+    return status_ok(\@cashcards);
 };
 
 post '/cashcards' => protected 'admin', sub {
     # check if connection to benutzerdb is alive
-    eval { database; }; return status(503) if $@;
+    eval { database; };
+    if ($@) {
+        ERROR 'could not connect to BenutzerDB: '.$@;
+        return status(503);
+    }
 
     my ($code, $user, $group) = map { s/^\s+|\s+$//g if $_; $_ }
         (params->{code}, params->{user}, params->{group});
@@ -67,13 +56,21 @@ post '/cashcards' => protected 'admin', sub {
         activationdate => DateTime->now(time_zone => 'local'),
     });
 
+    INFO 'creating new cashcard '.$code.' for user '.$user
+        .' (by user '.Cashpoint::Context->get('userid').')';
+
     return status_created();
 };
 
 put qr{/cashcards/([a-zA-Z0-9]{18})/(dis|en)able} => protected 'admin', valid_cashcard sub {
     my $cashcard = shift;
     my (undef, $mode) = splat;
+
     $cashcard->update({disabled => $mode eq 'en' ? 0 : 1});
+
+    INFO ($mode eq 'en' ? 'enabling' : 'disabling').' cashcard '.$cashcard->code
+        .' of user '.$cashcard->user.' (by user '.Cashpoint::Context->get('userid').')';
+
     return status_ok();
 };
 
@@ -91,17 +88,29 @@ put qr{/cashcards/([a-zA-Z0-9]{18})/unlock} => protected valid_enabled_cashcard 
     }
 
     # check if connection to benutzerdb is alive
-    eval { database; }; return status(503) if $@;
+    eval { database; };
+    if ($@) {
+        ERROR 'could not connect to BenutzerDB: '.$@;
+        return status(503);
+    }
 
     # validate pin
     my $userid = auth_by_pin($cashcard->user, $pin);
 
-    if (!defined $userid || $userid != $cashcard->user) {
+    if (!defined $userid) {
+        WARN 'unlocking of card '.$cashcard->code.' failed (wrong pin?)';
+        return status(401);
+    } elsif ($userid != $cashcard->user) {
+        WARN 'unlocking of card '.$cashcard->code.' failed (cashcard owner '
+            .$cashcard->user.' does not match session owner '.$userid.')';
         return status(401);
     }
 
-    my $authid = Cashpoint::Context->get('authid');
-    schema('cashpoint')->resultset('Auth')->find($authid)->update({
+    INFO 'card '.$cashcard->code.' unlocked by user '.Cashpoint::Context->get('userid');
+
+    # save cashcardid in session to mark it as unlocked
+    my $sessionid = Cashpoint::Context->get('sessionid');
+    schema('cashpoint')->resultset('Session')->find($sessionid)->update({
         code       => $cashcard->code,
         cashcardid => $cashcard->id,
     });
@@ -109,11 +118,62 @@ put qr{/cashcards/([a-zA-Z0-9]{18})/unlock} => protected valid_enabled_cashcard 
     return status_ok();
 };
 
-get qr{/cashcards/([a-zA-Z0-9]{18})/credits} => protected 'admin', valid_cashcard sub {
+get qr{/cashcards/([a-zA-Z0-9]{18})/transfers} => protected valid_cashcard sub {
+    my $cashcard = shift;
+    my @data = $cashcard->transfers;
+    return status_ok(\@data);
+};
+
+post qr{/cashcards/([a-zA-Z0-9]{18})/transfers} => protected valid_enabled_cashcard sub {
+    my $cashcard = shift;
+
+    # check if cashcard is unlocked
+    if (not defined Cashpoint::Context->get('cashcard') ||
+            ( defined Cashpoint::Context->get('cashcard') &&
+              Cashpoint::Context->get('cashcard') ne $cashcard->code )) {
+        WARN 'refusing transfer for session '
+            .Cashpoint::Context->get('sessionid').'; cashcard not unlocked';
+        return status_bad_request('no cashcard available');
+    }
+
+    my ($recipient, $amount, $reason) = map { s/^\s+|\s+$//g if $_; $_ }
+        (params->{recipient}, params->{amount}, params->{reason});
+
+    my @errors = ();
+    if (!defined $recipient || $recipient !~ m/^[a-z0-9]{18}$/i) {
+        push @errors, 'invalid recipient';
+    }
+    if (!defined $amount || !isnum($amount) || $amount <= 0 || (isfloat($amount)
+            && sprintf("%.2f", $amount) ne $amount)) {
+        push @errors, 'invalid amount';
+    }
+    if (!defined $reason || length ($reason) == 0 || length ($reason) > 50) {
+        push @errors, 'invalid reason';
+    }
+
+    return status_bad_request(\@errors) if @errors;
+
+    eval {
+        $cashcard->transfer($recipient, $amount, $reason);
+    };
+
+    if ($@) {
+        ERROR 'could not transfer credit from '.$cashcard->code.' to '
+            .$recipient.' (amount '.$amount.'): '.$@;
+        return status(500);
+    }
+
+    INFO 'card '.$cashcard->code.' transferred '.$amount.' EUR to '.$recipient
+        .' by user '.Cashpoint::Context->get('userid');
+
+    return status_created();
+};
+
+get qr{/cashcards/([a-zA-Z0-9]{18})/credits} => protected valid_cashcard sub {
     my $cashcard = shift;
     return status_ok({
-        amount => $cashcard->credit,
-        status => $cashcard->disabled == 0 ? "released" : "frozen",
+        balance => $cashcard->balance,
+        status  => $cashcard->disabled == 0 ? "released" : "frozen",
     });
 };
 
@@ -137,20 +197,19 @@ post qr{/cashcards/([a-zA-Z0-9]{18})/credits} => protected 'admin', valid_cashca
 
     return status_bad_request(\@errors) if @errors;
 
+    $amount = sprintf("%.2f", $amount);
     my $credit = $cashcard->create_related('Credit', {
         chargingtype => $type || 1,
         remark       => $remark || undef,
-        amount       => sprintf("%.2f", $amount),
+        amount       => $amount,
+        balance      => $cashcard->balance + $amount,
         date         => DateTime->now(time_zone => 'local'),
     });
 
-    # lock card if credit is negative and lock it if necessary
-    if ($cashcard->credit < 0) {
-        $cashcard->disabled(1);
-        $cashcard->update;
-    }
+    INFO 'card '.$cashcard->code.' charged with '.$amount.' EUR by user '
+        .Cashpoint::Context->get('userid');
 
-    return status_ok();
+    return status_created();
 };
 
 42;

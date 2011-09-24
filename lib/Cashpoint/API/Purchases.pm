@@ -9,20 +9,14 @@ use Dancer::Plugin::REST;
 use Dancer::Plugin::DBIC;
 use Scalar::Util::Numeric qw/isnum/;
 use Time::Piece;
+use Log::Log4perl qw( :easy );
 
 use Cashpoint::Utils;
+use Cashpoint::AccessGuard;
+use Cashpoint::ProductGuard;
 
-our $VERSION = '0.1';
-
-set serializer => 'JSON';
-
-get qr{/products/([0-9]{13}|[0-9]{8})/purchases} => sub {
-    return status_bad_request('invalid ean') unless validate_ean(my $ean = splat);
-    my $product = schema('cashpoint')->resultset('Product')->search({
-        ean => $ean,
-    })->single;
-    return status_not_found('product not found') unless $product;
-
+get qr{/products/([0-9]{13}|[0-9]{8})/purchases} => protected 'admin', valid_product sub {
+    my $product = shift;
     my $purchases = $product->search_related('Purchases', {}, {
         order_by => { -desc => 'purchaseid' }
     });
@@ -41,30 +35,40 @@ get qr{/products/([0-9]{13}|[0-9]{8})/purchases} => sub {
     return status_ok(\@data);
 };
 
-post qr{/products/([0-9]{13}|[0-9]{8})/purchases} => sub {
-    my $product = schema()->resultset('Product')->search({ean => params->{ean}})
-        ->single;
-    return status_not_found('product not found') unless $product;
+post qr{/products/([0-9]{13}|[0-9]{8})/purchases} => protected 'admin', valid_product sub {
+    my $product = shift;
 
-    my @errors = ();
+    my ($supplier, $purchasedate, $expirydate, $amount, $price) =
+        map { s/^\s+|\s+$//g if $_; $_ } (
+            params->{supplier},
+            params->{purchasedate},
+            params->{expirydate},
+            params->{amount},
+            params->{price}
+        );
 
     my ($pdate, $edate);
-    eval { $pdate = Time::Piece->strptime(params->{purchasedate} || 0, "%d-%m-%Y"); };
+    eval { $pdate = Time::Piece->strptime($purchasedate || 0, "%d-%m-%Y"); };
     $pdate += $pdate->localtime->tzoffset;
-    eval { $edate = Time::Piece->strptime(params->{expirydate} || 0, "%d-%m-%Y"); };
+    eval { $edate = Time::Piece->strptime($expirydate || 0, "%d-%m-%Y"); };
     $edate += $edate->localtime->tzoffset;
 
-    if (0) {
-    } if (!params->{supplier} || params->{supplier} !~ /^.{5,30}$/) {
-        push @errors, 'supplier must be at least 5 and up to 30 chars long';
-    } if (!params->{purchasedate} || !$pdate) {
-        push @errors, 'purchase date must follow dd-mm-yyyy formatting';
-    } if (params->{expirydate} && !$edate) {
-        push @errors, 'expiry date must follow dd-mm-yyyy formatting';
-    } if (!params->{amount} || params->{amount} !~ /^\d+$/) {
-        push @errors, 'amount must be greater zero';
-    } if (!params->{price} || !isnum(params->{price}) || params->{price} < 0) {
-        push @errors, 'price must be a positive decimal';
+    my @errors = ();
+    if (defined $supplier && (length $supplier == 0 || length $supplier > 50)) {
+        push @errors, 'invalid supplier';
+    }
+    if (!defined $purchasedate || !$pdate) {
+        push @errors, 'invalid purchase date';
+    }
+    if (defined $expirydate && !$edate) {
+        push @errors, 'invalid expiry date';
+    }
+    if (!defined $amount || !isnum($amount) || $amount <= 0) {
+        push @errors, 'invalid amount';
+    }
+    if (!defined $price || !isnum($price) || $price < 0 || (isfloat($price)
+            && sprintf("%.2f", $price) ne $price)) {
+        push @errors, 'invalid price';
     }
 
     return status_bad_request(\@errors) if @errors;
@@ -72,35 +76,43 @@ post qr{/products/([0-9]{13}|[0-9]{8})/purchases} => sub {
     my $insert;
     schema->txn_do(sub {
         $insert = $product->create_related('Purchases', {
-            userid       => 0, # FIXME
-            supplier     => params->{supplier},
+            userid       => Cashpoint::Context->get('userid'),
+            supplier     => $supplier,
             purchasedate => $pdate->datetime,
-            expirydate   => params->{expirydate} ? $edate->datetime : undef,
-            amount       => params->{amount},
-            price        => sprintf("%.2f", params->{price}),
+            expirydate   => $expirydate ? $edate->datetime : undef,
+            amount       => $amount,
+            price        => sprintf("%.2f", $price),
         });
 
         # update stock
-        $product->stock($product->stock+params->{amount});
+        $product->stock($product->stock + $amount);
         $product->update;
     });
 
-    # xxx: check if inserted
-    return status_bad_request('an error occured, please try again later') if $@;
+    if ($@) {
+        ERROR 'could not add purchase for product '.$product->name.' ('
+            .$product->id.'): '.$@;
+        return status(500);
+    }
+
+    INFO 'user '.Cashpoint::Context->get('userid').' added new purchase for'
+        .' product '.$product->name.' ('.$product->id.')';
+
     return status_created({id => $insert->id});
 };
 
-del qr{/products/([0-9]{13}|[0-9]{8})/purchases/([\d]+)} => sub {
-    my ($ean, $id) = splat;
-    my $product = schema()->resultset('Product')->search({ean => params->{ean}})
-        ->single;
-    return status_not_found('product not found') unless $product;
+del qr{/products/([0-9]{13}|[0-9]{8})/purchases/([\d]+)} => protected 'admin', valid_product sub {
+    my $product = shift;
+    my ($purchaseid) = splat;
 
-    my $purchase = schema()->resultset('Purchase')->search({purchaseid => params->{id}})
-        ->single;
-    return status_not_found('purchase not found') unless $purchase;
+    my $purchase = $product->find_related('Purchases', $purchaseid);
+    status_not_found('purchase not found') unless $purchase;
 
     $purchase->delete;
+
+    INFO 'user '.Cashpoint::Context->get('userid').' deleted purchase '
+        .$purchaseid.' of product '.$product->name.' ('.$product->id.')';
+
     return status_ok();
 };
 
