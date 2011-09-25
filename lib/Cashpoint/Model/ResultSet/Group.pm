@@ -8,7 +8,7 @@ use base 'DBIx::Class::ResultSet';
 sub ordered {
     my $self = shift;
     my @groups = $self->search({}, {
-        order_by => { -asc => 'groupid' }
+        order_by => { -asc => 'name' }
     })->all;
 
     my @data = ();
