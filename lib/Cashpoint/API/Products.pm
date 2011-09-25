@@ -11,6 +11,7 @@ use Dancer::Plugin::DBIC;
 use Scalar::Util::Numeric qw/isnum/;
 use Log::Log4perl qw( :easy );
 
+use Cashpoint::Utils qw/validate_ean/;
 use Cashpoint::AccessGuard;
 use Cashpoint::ProductGuard;
 
@@ -22,7 +23,7 @@ get '/products' => protected sub {
         push @data, {
             name     => $p->name,
             ean      => $p->ean,
-            stock    => $p->stock,
+            stock    => int($p->stock),
             added_on => $p->added_on->datetime,
         };
     }
