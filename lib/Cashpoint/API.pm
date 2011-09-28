@@ -1,8 +1,10 @@
 package Cashpoint::API;
 
+use diagnostics;
+
 use Dancer ':syntax';
-use Dancer::SharedData;
 use Dancer::Cookies;
+use Dancer::Plugin::DBIC;
 
 use Log::Log4perl qw( :easy );
 
@@ -16,7 +18,17 @@ use Cashpoint::API::Cashcards;
 
 our $VERSION = '0.1';
 
+BEGIN {
+    binmode STDIN, ":utf8";
+    binmode STDOUT, ":utf8";
+    binmode STDERR, ":utf8";
+}
+
 set serializer => 'JSON';
+
+# hook custom storage statistic into dbix
+schema('cashpoint')->storage->debugobj(Cashpoint::Model::QueryLogger->new());
+schema('cashpoint')->storage->debug($ENV{DBIC_TRACE}||0);
 
 INFO "Cashpoint-API starting up";
 

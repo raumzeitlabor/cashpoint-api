@@ -9,9 +9,11 @@
 logger: log4perl
 log4perl:
   config: |
+    #log4perl.threshold = OFF
     log4perl.logger                  = DEBUG, Screen
     log4perl.rootLogger              = INFO, LOG1
     log4perl.appender.LOG1           = Log::Log4perl::Appender::File
+    log4perl.appender.LOG1.utf8      = 1
     log4perl.appender.LOG1.filename  = cashpoint.log
     log4perl.appender.LOG1.mode      = append
     log4perl.appender.LOG1.layout    = Log::Log4perl::Layout::PatternLayout
@@ -19,6 +21,7 @@ log4perl:
     log4perl.appender.Screen         = Log::Log4perl::Appender::Screen
     log4perl.appender.Screen.stderr  = 1
     log4perl.appender.Screen.stdout  = 0
+    log4perl.appender.Screen.utf8    = 1
     log4perl.appender.Screen.layout  = Log::Log4perl::Layout::PatternLayout
     log4perl.appender.Screen.layout.ConversionPattern = %d [%-5p] %m%n
 
@@ -28,7 +31,7 @@ log4perl:
 log: "core"
 
 # should Dancer consider warnings as critical errors?
-warnings: 1
+warnings: 0
 
 # should Dancer show a stacktrace when an error is caught?
 show_errors: 1
@@ -45,11 +48,18 @@ auto_reload: 0
 plugins:
   DBIC:
     cashpoint:
-      dsn: dbi:SQLite:dbname=./cashpoint.db
       schema_class: Cashpoint::Model
+#      dsn: dbi:mysql:database=cashpoint;host=127.0.0.1
+#      user: 'cashpoint'
+#      pass: 'JiGBV1B0AsVwDNfLZJp7cBU'
+#      options:
+#        RaiseError: 1
+#        PrintError: 1
+      dsn: dbi:SQLite:dbname=./cashpoint.db;sqlite_unicode=1
       options:
         RaiseError: 1
         PrintError: 1
+        sqlite_unicode: 1
 
   Database:
     driver: 'mysql'

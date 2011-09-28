@@ -3,6 +3,7 @@ package Cashpoint::API;
 use strict;
 use warnings;
 
+use Encode;
 use Data::Dumper;
 use Dancer ':syntax';
 use Dancer::Plugin::REST;
