@@ -89,7 +89,12 @@ post qr{/baskets/([\d]+)/items} => protected valid_basket sub {
 
     return status_bad_request(\@errors) if @errors;
 
-    my $price = $product->price($basket->cashcard, $basket->get_item_quantity($product));
+    # we don't check for stock. if a product could be scanned, it obviously is
+    # available, isn't it?
+
+    my $price = $product->price($basket->cashcard,
+        $basket->get_item_quantity($product)+1);
+
     return status_not_found('no price could be determined') unless $price;
 
     my $balance = $basket->cashcard->balance;
