@@ -7,15 +7,14 @@ use base qw/DBIx::Class::Core/;
 
 __PACKAGE__->table('compositeproduct');
 __PACKAGE__->add_columns(
-    compositeid => {
-        accessor  => 'composite',
+    id => {
         data_type => 'integer',
         is_nullable => 0,
         is_auto_increment => 1,
     },
 
-    productid => {
-        accessor => 'product',
+    compositeid => {
+        accessor => 'composite',
         data_type => 'integer',
         is_nullable => 0,
     },
@@ -26,7 +25,9 @@ __PACKAGE__->add_columns(
     },
 );
 
-__PACKAGE__->set_primary_key('compositeid');
-__PACKAGE__->has_many('Products', 'Cashpoint::Model::Result::Product', 'productid');
+__PACKAGE__->set_primary_key('id');
+__PACKAGE__->has_one(product => 'Cashpoint::Model::Result::Product', {
+    'foreign.productid' => 'self.compositeid'
+});
 
 42;

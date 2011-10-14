@@ -34,6 +34,7 @@ __PACKAGE__->add_columns(
     },
 
     stock => {
+        accessor => '_stock',
         data_type => 'integer',
         is_numeric => 1,
         is_nullable => 0,
@@ -54,11 +55,46 @@ __PACKAGE__->add_columns(
     },
 );
 
+# in case this product is a composite product, we calculate the stock
+# by choosing min(prod_1, ..., prod_n) for all products in the composite
+sub stock {
+    my $self = shift;
+    my $composites = $self->composites;
+
+    if ($composites->count) {
+        my $min_stock = undef;
+        while (my $p = $composites->next) {
+            $min_stock = $min_stock
+                ? ($p->stock < $min_stock ? $p->stock : $min_stock)
+                : $p->stock;
+        }
+        return $min_stock;
+    }
+
+    return $self->_stock;
+}
+
+# determines the price of the product. in case the product is a composite, the
+# price is determined by calculating the sum of the prices for each of the
+# composite elements. in case any of the elements prices are undefined, the
+# composite product's price cannot be determined and thus too evalutes to undef
 sub price {
     my ($self, $cashcard, $quantity) = @_;
 
-    # if no quantity was applied, we assume a qty of 0
-    $quantity ||= 0;
+    # if no quantity was applied, we assume a qty of 1
+    $quantity ||= 1;
+
+    # check if we are a composite product and return the sum if so
+    my $composites = $self->composites;
+    if ($composites->count) {
+        my $price = 0;
+        while ($p = $composites->next) {
+            my $pprice = $p->price($cashcard, $quantity*$p->units);
+            return undef unless $pprice;
+            $price += $pprice;
+        }
+        return $price;
+    }
 
     # if no conditions have been explicitly defined for this product, there
     # may be a default condition for the group of the user, so we also look
@@ -90,7 +126,7 @@ sub price {
             ],
         ],
     }, {
-            order_by => { -desc => qw/productid groupid userid quantity startdate/ },
+        order_by => { -desc => qw/productid groupid userid quantity startdate/ },
     });
 
     unless ($conditions->count) {
@@ -141,6 +177,8 @@ sub sqlt_deploy_hook {
 }
 
 __PACKAGE__->set_primary_key('productid');
+__PACKAGE__->has_many(composites => 'Cashpoint::Model::Result::CompositeProduct',
+    { 'foreign.compositeid' => 'self.productid' });
 __PACKAGE__->has_many('Purchases' => 'Cashpoint::Model::Result::Purchase',
     'productid', { order_by => { -desc => 'purchaseid' }});
 __PACKAGE__->has_many('SaleItems' => 'Cashpoint::Model::Result::SaleItem',
