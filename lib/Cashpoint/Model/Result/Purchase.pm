@@ -29,7 +29,7 @@ __PACKAGE__->add_columns(
 
     supplier => {
         data_type => 'varchar',
-        is_nullable => 0,
+        is_nullable => 1,
         size => 30,
     },
 
