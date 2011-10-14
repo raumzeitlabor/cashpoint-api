@@ -15,6 +15,7 @@ use Cashpoint::API::Baskets;
 use Cashpoint::API::Products;
 use Cashpoint::API::Purchases;
 use Cashpoint::API::Cashcards;
+use Cashpoint::Model::QueryLogger;
 
 our $VERSION = '0.1';
 
