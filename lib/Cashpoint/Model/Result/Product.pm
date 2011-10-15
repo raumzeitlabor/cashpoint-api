@@ -55,12 +55,30 @@ __PACKAGE__->add_columns(
     },
 );
 
+# warning: these functions are by no means optimized for performance. beware!
+
 # in case this product is a composite product, we calculate the stock
 # by choosing min(prod_1, ..., prod_n) for all products in the composite
+# in case of an update, we apply the stock change to all composite elements
+# if the stock is ought to be updated, the method argument will be interpreted
+# as a relative value; if the update is applied to a composite product, it is
+# cascaded down to the composite elements incorporating the number of units
 sub stock {
     my $self = shift;
     my $composites = $self->composites;
 
+    # stock is going to be updated and this is not a composite product
+    if (@_ and not $self->composites->count) {
+        $self->_stock($self->_stock + shift);
+        return;
+    } elsif (@_) {
+        while (my $p = $composites->next) {
+            $self->stock($p->stock + shift * $p->units);
+        }
+        return;
+    }
+
+    # no update is to be done
     if ($composites->count) {
         my $min_stock = undef;
         while (my $p = $composites->next) {
@@ -74,34 +92,42 @@ sub stock {
     return $self->_stock;
 }
 
-# determines the price of the product. in case the product is a composite, the
-# price is determined by calculating the sum of the prices for each of the
-# composite elements. in case any of the elements prices are undefined, the
-# composite product's price cannot be determined and thus too evalutes to undef
-sub price {
-    my ($self, $cashcard, $quantity) = @_;
-
-    # if no quantity was applied, we assume a qty of 1
-    $quantity ||= 1;
-
-    # check if we are a composite product and return the sum if so
+# in case the product is a composite, the base for price calculation is the sum
+# of the last X elements' purchase amounts. otherwise, the base is the average
+# of the last X purchase amounts. in case there are no purchases for one of the
+# composite elements, the base for the composite too cannot be determined.
+sub base {
+    my $self = shift;
     my $composites = $self->composites;
+
     if ($composites->count) {
-        my $price = 0;
-        while ($p = $composites->next) {
-            my $pprice = $p->price($cashcard, $quantity*$p->units);
-            return undef unless $pprice;
-            $price += $pprice;
+        my $base = 0;
+        while (my $p = $composites->next) {
+            my $ebase = $p->base;
+            return undef unless $ebase;
+            $base += $ebase;
         }
-        return $price;
+        return $base;
     }
+
+    return $self->search_related('Purchases', {
+    }, {
+        #+select  => [ \'me.price/me.amount' ],
+        #+as      => [ qw/unitprice/ ],
+        order_by => { -desc => 'purchaseid' },
+        rows     => 5,
+    })->get_column('price')->func('AVG');
+}
+
+sub conditions {
+    my ($self, $cashcard, $quantity) = @_;
+    my $parser = schema->storage->datetime_parser;
 
     # if no conditions have been explicitly defined for this product, there
     # may be a default condition for the group of the user, so we also look
     # for it. however, these conditions have lower priority than product
     # conditions.
-    my $parser = schema->storage->datetime_parser;
-    my $conditions = schema->resultset('Condition')->search({
+    return schema->resultset('Condition')->search({
         -and => [
             -or => [
                 productid => $self->id,
@@ -128,7 +154,77 @@ sub price {
     }, {
         order_by => { -desc => qw/productid groupid userid quantity startdate/ },
     });
+}
 
+# determines the price of the product. in case the product is a composite, the
+# price is determined by calculating the sum of the prices for each of the
+# composite elements. in case any of the elements prices are undefined, the
+# composite product's price cannot be determined and thus too evalutes to undef.
+# if a condition has been created for a composite product, the condition will
+# be applied to each composite element base and summed up.
+sub price {
+    my ($self, $cashcard, $quantity) = @_;
+
+    # if no quantity was applied, we assume a qty of 1
+    $quantity ||= 1;
+
+    # check if we are a composite product and return the sum if so
+    my $composites = $self->composites;
+    if ($composites->count) {
+        DEBUG 'given product '.$self->product.' is a composite, trying to '
+            .'derive price';
+
+        # if there is a condition for this composite product and it is not a
+        # fix price, apply it to all elements. if it is a fix price, return it.
+        # if there is no condition for this composite, calculate the composite
+        # price by summing up the prices of the elements.
+        my $cconditions = $self->conditions($cashcard, $quantity);
+        if ($cconditions->count) {
+            DEBUG 'condition context for composite product '.$self->name.' ('
+                .$self->id.') is ['
+                .join(",", $cconditions->get_column('id')->all())
+                .']';
+
+
+            if ($cconditions->first->is_fixed) {
+                DEBUG 'condition of composite product '.$self->product.' is fixed';
+                return $cconditions->first->apply($self)
+            }
+
+            # the composite does not have a fix price -> apply condition to
+            # elements and sum up their calculated prices
+            my $price = 0;
+            while (my $p = $composites->next) {
+                my $eprice = $cconditions->first->apply($p);
+                return undef unless $eprice;
+                $price += $eprice;
+            }
+
+            DEBUG 'price for composite product '.$self->name.' (id '
+                .$self->product.') determined to be '.$price;
+            return $price;
+        }
+
+        # there is no special condition for this composite; thus, we sum up the
+        # individual prices of the elements
+
+        DEBUG 'no special condition for composite product '.$self->name.' ('
+            .$self->id.') defined; deriving price recursively';
+
+        my $price = 0;
+        while (my $p = $composites->next) {
+            my $eprice = $p->price($cashcard, $quantity * $p->units);
+            return undef unless $eprice;
+            $price += $eprice;
+        }
+
+        DEBUG 'price for composite product '.$self->name.' (id '
+            .$self->product.') determined to be '.$price;
+        return $price;
+    }
+
+    # this is an "ordinary" product
+    my $conditions = $self->conditions($cashcard, $quantity);
     unless ($conditions->count) {
         ERROR 'could not calculate price for product '.$self->name
             .' ('.$self->id.'); no valid conditions could be found';
@@ -138,38 +234,13 @@ sub price {
     DEBUG 'condition context for '.$self->name.' ('.$self->id.') is ['
         .join(",", $conditions->get_column('id')->all()).']';
 
-    # FIXME: use weighted average?
-    my $base = $self->search_related('Purchases', {
-    }, {
-        #+select  => [ \'me.price/me.amount' ],
-        #+as      => [ qw/unitprice/ ],
-        order_by => { -desc => 'purchaseid' },
-        rows     => 5,
-    })->get_column('price')->func('AVG');
-
-    WARN 'could not calculate base (no purchases found) for product '
-        .$self->name.' ('.$self->id.')';
-
-    # FIXME: calculate prices for all conditions and cache them?
     # prices are always rounded up to the tenth digit for moar profit
-    my $c = $conditions->first;
-    if (defined $base && $c->premium && $c->fixedprice) {
-        DEBUG 'using PREMIUM&FIXEDPRICE for price calculation';
-        return Cashpoint::Model::Price->new($c->id, sprintf("%.1f0",
-            ceil(($base*$c->premium+$c->fixedprice)/0.1)*0.1));
-    } elsif (defined $base && $c->premium && !$c->fixedprice) {
-        DEBUG 'using PREMIUM mode for price calculation';
-        return Cashpoint::Model::Price->new($c->id, sprintf("%.1f0",
-            ceil($base*$c->premium/0.1)*0.1));
-    } elsif (!$c->premium && $c->fixedprice) {
-        DEBUG 'using FIXEDPRICE mode for price calculation';
-        return Cashpoint::Model::Price->new($c->id, sprintf("%.1f0",
-            ceil($c->fixedprice/0.1)*0.1));
-    }
+    my $price = $conditions->first->apply($self);
 
-    ERROR 'no valid pricing mode could be found';
-    return undef;
-};
+    DEBUG 'price for elementary product '.$self->name.' (id '
+        .$self->product.') determined to be '.$price;
+    return $price;
+}
 
 sub sqlt_deploy_hook {
     my ($self, $sqlt_table) = @_;
