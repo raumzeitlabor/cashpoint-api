@@ -38,6 +38,9 @@ get qr{/products/([0-9]{13}|[0-9]{8})/purchases} => protected 'admin', valid_pro
 post qr{/products/([0-9]{13}|[0-9]{8})/purchases} => protected 'admin', valid_product sub {
     my $product = shift;
 
+    # check if product is composite, in which case storing purchases is prohibited
+    return status_bad_request('composite product') if ($product->composite->count);
+
     my ($supplier, $purchasedate, $expirydate, $amount, $price) =
         map { s/^\s+|\s+$//g if $_; $_ } (
             params->{supplier},
