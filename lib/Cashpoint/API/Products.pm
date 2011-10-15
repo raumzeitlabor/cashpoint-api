@@ -187,8 +187,8 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_p
         comment     => $comment,
         premium     => $premium,
         fixedprice  => $fixedprice,
-        startdate   => $sdate || DateTime->now(time_zone => 'local'),
-        enddate     => $edate,
+        startdate   => $sdate->datetime || DateTime->now(time_zone => 'local'),
+        enddate     => $edate->datetime,
     });
 
     INFO 'user '.Cashpoint::Context->get('userid').' added new condition '
