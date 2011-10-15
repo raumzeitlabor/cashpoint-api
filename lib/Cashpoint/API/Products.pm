@@ -163,11 +163,11 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_p
     if (!defined $premium && !defined $fixedprice) {
         push @errors, 'invalid condition type';
     }
-    if (defined $premium && !isnum($premium)) {
+    if (defined $premium && (!isnum($premium) || $premium < 0)) {
         push @errors, 'invalid premium';
     }
     if (defined $fixedprice && (!isnum($fixedprice) || (isfloat($fixedprice)
-            && sprintf("%.2f", $fixedprice) ne $fixedprice))) {
+            && sprintf("%.2f", $fixedprice) ne $fixedprice) || $fixedprice <= 0)) {
         push @errors, 'invalid fixedprice';
     }
     if (defined $startdate && ($startdate eq '' || !$sdate)) {

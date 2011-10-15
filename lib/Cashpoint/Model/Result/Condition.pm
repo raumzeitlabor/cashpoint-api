@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use base qw/DBIx::Class::Core/;
+use Log::Log4perl qw( :easy );
 
 __PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('condition');
@@ -75,6 +76,43 @@ sub sqlt_deploy_hook {
     my ($self, $sqlt_table) = @_;
     $sqlt_table->add_index(name => 'conditionindex', fields =>
         ['productid', 'groupid', 'userid', 'quantity', 'startdate', 'enddate']);
+}
+
+# returns true if this condition represents a fix price
+sub is_fixed {
+    my $self = shift;
+    return (!$self->premium && $self->fixedprice);
+}
+
+# applies this condition to the given product
+sub apply {
+    my ($self, $product) = @_;
+    my $base = $product->base;
+
+    unless ($base) {
+        WARN 'could not apply condition to product '.$product->name.' id ('
+            .$product->product.' (could not determine base)';
+        return undef;
+    }
+
+    if ($self->premium && $self->fixedprice) {
+        DEBUG 'using PREMIUM&FIXEDPRICE mode for price calculation';
+        return Cashpoint::Model::Price->new($self->id, sprintf("%.1f0",
+            ceil(($base*(1+$self->premium)+$self->fixedprice)/0.1)*0.1));
+    } elsif ($self->premium && !$self->fixedprice) {
+        DEBUG 'using PREMIUM mode for price calculation';
+        return Cashpoint::Model::Price->new($self->id, sprintf("%.1f0",
+            ceil($base*(1+$self->premium/0.1))*0.1));
+    } elsif (!$self->premium && $self->fixedprice) {
+        DEBUG 'using FIXEDPRICE mode for price calculation';
+        return Cashpoint::Model::Price->new($self->id, sprintf("%.1f0",
+            ceil($self->fixedprice/0.1)*0.1));
+    }
+
+    ERROR 'unknown pricing mode; invalid condition (id: '
+        + $self->condition +')';
+
+    return undef;
 }
 
 __PACKAGE__->set_primary_key('conditionid');
