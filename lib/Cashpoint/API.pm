@@ -47,13 +47,12 @@ before sub {
     # ignore if auth_token contains unknown characters
     return if defined $auth_token && $auth_token =~ m/^[a-z0-9]{20}$/;
 
-    my $parser = schema->storage->datetime_parser;
-
     # check for valid session
     my $some_time_ago = DateTime->now(time_zone => 'local')->add(
         minutes => - setting('FAILED_LOGIN_LOCK') || 5
     );
 
+    my $parser = schema->storage->datetime_parser;
     my $session = schema('cashpoint')->resultset('Session')->find({
         token       => $auth_token,
         last_action => { '>=', $parser->format_datetime($some_time_ago) },

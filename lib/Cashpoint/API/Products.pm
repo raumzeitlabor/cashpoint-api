@@ -11,6 +11,7 @@ use Dancer::Plugin::DBIC;
 use Scalar::Util::Numeric qw/isnum/;
 use Log::Log4perl qw( :easy );
 
+use Cashpoint::Context;
 use Cashpoint::Utils qw/validate_ean/;
 use Cashpoint::AccessGuard;
 use Cashpoint::ProductGuard;
@@ -79,10 +80,8 @@ get qr{/products/([0-9]{13}|[0-9]{8})} => protected valid_product sub {
 get qr{/products/([0-9]{13}|[0-9]{8})/price} => protected valid_product sub {
     my $product = shift;
 
-    my $cashcardid = Context::Cashcard->get('cashcard');
-    if (!defined $cashcardid) {
-        status_bad_request('invalid cashcard');
-    }
+    my $cashcardid = Cashpoint::Context->get('cashcard');
+    return status_bad_request('invalid cashcard') if (!defined $cashcardid);
 
     # look up cashcard
     my $cashcard = schema('cashpoint')->resultset('Cashcard')->find($cashcardid);
