@@ -159,7 +159,7 @@ put qr{/baskets/([\d]+)/checkout} => protected valid_basket sub {
             });
 
             # update stock
-            $i->product->stock($i->product->stock - 1);
+            $i->product->stock(-1);
             $i->product->update;
         }
 
