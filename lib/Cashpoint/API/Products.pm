@@ -80,11 +80,8 @@ get qr{/products/([0-9]{13}|[0-9]{8})} => protected valid_product sub {
 get qr{/products/([0-9]{13}|[0-9]{8})/price} => protected valid_product sub {
     my $product = shift;
 
-    my $cashcardid = Cashpoint::Context->get('cashcard');
-    return status_bad_request('invalid cashcard') if (!defined $cashcardid);
-
-    # look up cashcard
-    my $cashcard = schema('cashpoint')->resultset('Cashcard')->find($cashcardid);
+    my $cashcard = Cashpoint::Context->get('cashcard');
+    return status_bad_request('invalid cashcard') if (!defined $cashcard);
 
     # price for one single unit
     my $price = $product->price($cashcard);
@@ -141,10 +138,12 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_p
         );
 
     my ($sdate, $edate);
-    eval { $sdate = Time::Piece->strptime($startdate || 0, "%d-%m-%Y"); };
+    eval { $sdate = Time::Piece->strptime($startdate || "invalid", "%d-%m-%Y"); };
     $sdate += $sdate->localtime->tzoffset unless $@;
-    eval { $edate = Time::Piece->strptime($enddate || 0, "%d-%m-%Y"); };
+    eval { $edate = Time::Piece->strptime($enddate || "invalid", "%d-%m-%Y"); };
     $edate += $edate->localtime->tzoffset unless $@;
+
+    print Dumper $sdate, $edate;
 
     my @errors = ();
     if (!defined $group || (!isint($group) || $group == 0
@@ -186,8 +185,8 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_p
         comment     => $comment,
         premium     => $premium,
         fixedprice  => $fixedprice,
-        startdate   => $sdate->datetime || DateTime->now(time_zone => 'local'),
-        enddate     => $edate->datetime,
+        startdate   => $sdate ? $sdate->datetime : DateTime->now(time_zone => 'local'),
+        enddate     => $edate ? $edate->datetime : undef,
     });
 
     INFO 'user '.Cashpoint::Context->get('userid').' added new condition '
