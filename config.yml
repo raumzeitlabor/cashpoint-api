@@ -30,12 +30,3 @@ template: "simple"
 engines:
   JSON:
     utf8: '1'
-
-# user id of administrators
-ADMINISTRATORS: [7, 11, 5, 24]
-
-# failed login attempts until credentials will be locked
-MAX_FAILED_ATTEMPTS: 3
-
-# time in minutes for which credentials will be locked
-FAILED_LOGIN_LOCK: 5

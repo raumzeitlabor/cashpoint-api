@@ -74,3 +74,12 @@ plugins:
       AutoCommit: 1
     on_connect_do: ["SET NAMES 'utf8'", "SET CHARACTER SET 'utf8'" ]
     log_queries: 1
+
+# user id of administrators
+ADMINISTRATORS: [7, 11, 5, 24]
+
+# failed login attempts until credentials will be locked
+MAX_FAILED_ATTEMPTS: 3
+
+# time in minutes for which credentials will be locked
+FAILED_LOGIN_LOCK: 60
