@@ -5,6 +5,7 @@ use warnings;
 
 use base qw/DBIx::Class::Core/;
 use Log::Log4perl qw( :easy );
+use POSIX qw(ceil);
 
 __PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('condition');
@@ -97,16 +98,19 @@ sub apply {
 
     if ($self->premium && $self->fixedprice) {
         DEBUG 'using PREMIUM&FIXEDPRICE mode for price calculation';
+        my $val = $base*(1+$self->premium)+$self->fixedprice;
         return Cashpoint::Model::Price->new($self->id, sprintf("%.1f0",
-            ceil(($base*(1+$self->premium)+$self->fixedprice)/0.1)*0.1));
+            ceil($val/0.1)*0.1));
     } elsif ($self->premium && !$self->fixedprice) {
         DEBUG 'using PREMIUM mode for price calculation';
+        my $val = $base*(1+$self->premium);
         return Cashpoint::Model::Price->new($self->id, sprintf("%.1f0",
-            ceil($base*(1+$self->premium/0.1))*0.1));
+            ceil($val/0.1)*0.1));
     } elsif (!$self->premium && $self->fixedprice) {
         DEBUG 'using FIXEDPRICE mode for price calculation';
+        my $val = $self->fixedprice;
         return Cashpoint::Model::Price->new($self->id, sprintf("%.1f0",
-            ceil($self->fixedprice/0.1)*0.1));
+            ceil($val/0.1)*0.1));
     }
 
     ERROR 'unknown pricing mode; invalid condition (id: '
