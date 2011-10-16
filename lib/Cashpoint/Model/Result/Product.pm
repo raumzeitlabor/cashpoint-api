@@ -5,11 +5,10 @@ use warnings;
 
 use base qw/DBIx::Class::Core/;
 
+use Data::Dumper;
 use Cashpoint::Model::Price;
 use Dancer::Plugin::DBIC;
 use Log::Log4perl qw( :easy );
-
-use POSIX qw(ceil);
 
 __PACKAGE__->load_components(qw/InflateColumn::DateTime/);
 __PACKAGE__->table('product');
@@ -69,11 +68,11 @@ sub stock {
 
     # stock is going to be updated and this is not a composite product
     if (@_ and not $self->composites->count) {
-        $self->_stock($self->_stock + shift);
+        $self->_stock($self->_stock + shift());
         return;
     } elsif (@_) {
         while (my $p = $composites->next) {
-            $self->stock($p->stock + shift * $p->units);
+            $self->stock($p->stock + shift() * $p->units);
         }
         return;
     }
@@ -110,13 +109,19 @@ sub base {
         return $base;
     }
 
-    return $self->search_related('Purchases', {
-    }, {
-        #+select  => [ \'me.price/me.amount' ],
-        #+as      => [ qw/unitprice/ ],
+    # we use a weighted average of the last five purchases
+    my $samples = $self->search_related('Purchases', { }, {
+        +select  => [ \'me.price*me.amount' ],
+        +as      => [ qw/totalprice/ ],
         order_by => { -desc => 'purchaseid' },
         rows     => 5,
-    })->get_column('price')->func('AVG');
+    });
+
+    return undef unless $samples->count;
+
+    my $weight_sum = $samples->get_column('amount')->func('SUM');
+    my $total_sum  = $samples->get_column('totalprice')->func('SUM');
+    return $total_sum/$weight_sum;
 }
 
 sub conditions {
@@ -152,7 +157,7 @@ sub conditions {
             ],
         ],
     }, {
-        order_by => { -desc => qw/productid groupid userid quantity startdate/ },
+        order_by => { -desc => [qw/productid groupid userid quantity startdate/] },
     });
 }
 
@@ -219,7 +224,7 @@ sub price {
         }
 
         DEBUG 'price for composite product '.$self->name.' (id '
-            .$self->product.') determined to be '.$price;
+            .$self->product.') determined to be '.$price->value;
         return $price;
     }
 
@@ -231,14 +236,14 @@ sub price {
         return undef;
     }
 
-    DEBUG 'condition context for '.$self->name.' ('.$self->id.') is ['
-        .join(",", $conditions->get_column('id')->all()).']';
+    DEBUG 'condition context for '.$self->name.' (id '.$self->product.') is ['
+        .join(",", $conditions->get_column('conditionid')->all()).']';
 
     # prices are always rounded up to the tenth digit for moar profit
     my $price = $conditions->first->apply($self);
 
     DEBUG 'price for elementary product '.$self->name.' (id '
-        .$self->product.') determined to be '.$price;
+        .$self->product.') determined to be '.$price->value;
     return $price;
 }
 
