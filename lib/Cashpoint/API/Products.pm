@@ -12,7 +12,7 @@ use Scalar::Util::Numeric qw/isnum/;
 use Log::Log4perl qw( :easy );
 
 use Cashpoint::Context;
-use Cashpoint::Utils qw/validate_ean/;
+use Cashpoint::Utils qw/validate_ean generate_ean/;
 use Cashpoint::AccessGuard;
 use Cashpoint::ProductGuard;
 
@@ -35,13 +35,19 @@ get '/products' => protected sub {
 post '/products' => protected 'admin', sub {
     my @errors = ();
 
-    my ($name, $ean, $threshold) = map { s/^\s+|\s+$//g if $_; $_ }
-        (params->{name}, params->{ean}, params->{threshold});
+    my ($name, $ean, $threshold, $composite) = map { s/^\s+|\s+$//g if $_; $_ }
+        (params->{name}, params->{ean}, params->{threshold}, params->{composite});
 
     if (!defined $name || length $name > 30) {
         push @errors, 'invalid name';
     }
-    if (!defined $ean || length $ean > 13 || !validate_ean($ean)) {
+    if (defined $composite && (ref $composite ne 'ARRAY'
+        || scalar @$composite <= 1)) {
+        push @errors, 'invalid composite elements';
+    }
+    if (defined $composite && defined $ean) {
+        push @errors, 'composite product must not have ean';
+    } elsif (defined $ean && (length $ean != 13 || !validate_ean($ean))) {
         push @errors, 'invalid ean';
     } elsif (schema('cashpoint')->resultset('Product')->find({ ean => $ean})) {
         push @errors, 'product already exists';
@@ -52,16 +58,55 @@ post '/products' => protected 'admin', sub {
 
     return status_bad_request(\@errors) if @errors;
 
-    my $product = schema('cashpoint')->resultset('Product')->create({
-        ean       => $ean,
-        name      => $name,
-        threshold => $threshold || 0,
-        added_on  => DateTime->now(time_zone => 'local'),
+    # if composite, check ean and units of all elements
+    my @element_eans = ();
+    foreach my $element (@{$composite}) {
+        if (!defined $element->{ean} || !validate_ean($element->{ean})
+            || !schema('cashpoint')->resultset('Product')->search({
+                ean => $element->{ean} })->count) {
+            return status_bad_request('invalid composite element');
+        }
+        if (!isnum ($element->{units}) || $element->{units} <= 0) {
+            return status_bad_request('invalid composite element');
+        }
+        push @element_eans, $element->{ean};
+    }
+
+    # TODO: check if composite with same element combination exists
+
+    # create a new, unallocated ean
+    if ($composite) {
+        my $rs;
+        do {
+            $ean = generate_ean;
+            $rs = schema('cashpoint')->resultset('Product')->find({ ean => $ean });
+        } while ($rs);
+
+        DEBUG "generated ean $ean for composite product";
+    }
+
+    schema('cashpoint')->txn_do(sub {
+        my $product = schema('cashpoint')->resultset('Product')->create({
+            ean       => $ean,
+            name      => $name,
+            threshold => $threshold || 0,
+            added_on  => DateTime->now(time_zone => 'local'),
+        });
+
+        # if composite, create composite relations
+        foreach my $element (@{$composite}) {
+            $product->add_to_composites({
+                productid => $product,
+                elementid => $element->{ean},
+                units     => $element->{units},
+            });
+        }
+
+        INFO 'user '.Cashpoint::Context->get('userid').' added new product '
+            .$name.' ('.$product->id.')';
     });
 
-    INFO 'user '.Cashpoint::Context->get('userid').' added new product '
-        .$name.' ('.$product->id.')';
-
+    return status_created({ean => $ean}) if $composite;
     return status_created();
 };
 
@@ -142,8 +187,6 @@ post qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_p
     $sdate += $sdate->localtime->tzoffset unless $@;
     eval { $edate = Time::Piece->strptime($enddate || "invalid", "%d-%m-%Y"); };
     $edate += $edate->localtime->tzoffset unless $@;
-
-    print Dumper $sdate, $edate;
 
     my @errors = ();
     if (!defined $group || (!isint($group) || $group == 0
