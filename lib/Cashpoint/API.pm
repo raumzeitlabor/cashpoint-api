@@ -33,7 +33,7 @@ schema('cashpoint')->storage->debug($ENV{DBIC_TRACE}||0);
 
 INFO "Cashpoint-API starting up";
 
-before sub {
+hook 'before' => sub {
     # log request?
     INFO request->method.' => '.request->path.' (by '.request->address.')';
 
@@ -76,7 +76,7 @@ before sub {
     Cashpoint::Context->set(role => @found == 1 ? 'admin' : 'user');
 };
 
-after sub {
+hook 'after' => sub {
     my $response = shift;
 
     # only update session if call succeeded

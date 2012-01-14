@@ -85,7 +85,7 @@ sub stock {
                 ? ($p->stock < $min_stock ? $p->stock : $min_stock)
                 : $p->stock;
         }
-        return $min_stock;
+        return $min_stock || 0;
     }
 
     return $self->_stock;
@@ -247,6 +247,7 @@ sub price {
     return $price;
 }
 
+# create index on eans
 sub sqlt_deploy_hook {
     my ($self, $sqlt_table) = @_;
     $sqlt_table->add_index(name => 'eanindex', fields => ['ean']);
@@ -254,7 +255,7 @@ sub sqlt_deploy_hook {
 
 __PACKAGE__->set_primary_key('productid');
 __PACKAGE__->has_many(composites => 'Cashpoint::Model::Result::CompositeProduct',
-    { 'foreign.compositeid' => 'self.productid' });
+    'productid', );
 __PACKAGE__->has_many('Purchases' => 'Cashpoint::Model::Result::Purchase',
     'productid', { order_by => { -desc => 'purchaseid' }});
 __PACKAGE__->has_many('SaleItems' => 'Cashpoint::Model::Result::SaleItem',

@@ -41,17 +41,24 @@ post '/products' => protected 'admin', sub {
     if (!defined $name || length $name > 30) {
         push @errors, 'invalid name';
     }
+
     if (defined $composite && (ref $composite ne 'ARRAY'
         || scalar @$composite <= 1)) {
         push @errors, 'invalid composite elements';
     }
+
     if (defined $composite && defined $ean) {
         push @errors, 'composite product must not have ean';
-    } elsif (defined $ean && (length $ean != 13 || !validate_ean($ean))) {
+    }
+
+    # FIXME: does not work (case no ean but composite)
+    if ((!defined $composite && !defined $ean)
+        || (defined $ean && (length $ean != 13 || !validate_ean($ean)))) {
         push @errors, 'invalid ean';
     } elsif (schema('cashpoint')->resultset('Product')->find({ ean => $ean})) {
         push @errors, 'product already exists';
     }
+
     if (defined $threshold && (!isint($threshold) || $threshold <= 0)) {
         push @errors, 'invalid threshold';
     }
@@ -59,23 +66,29 @@ post '/products' => protected 'admin', sub {
     return status_bad_request(\@errors) if @errors;
 
     # if composite, check ean and units of all elements
-    my @element_eans = ();
-    foreach my $element (@{$composite}) {
+    foreach my $element (@$composite) {
+        my $el = schema('cashpoint')->resultset('Product')->search({
+            ean => $element->{ean}
+        });
+
         if (!defined $element->{ean} || !validate_ean($element->{ean})
-            || !schema('cashpoint')->resultset('Product')->search({
-                ean => $element->{ean} })->count) {
+            || !$el->count) {
             return status_bad_request('invalid composite element');
+        } else {
+            # save the id for later insertion
+            $element->{id} = $el->product;
         }
+
         if (!isnum ($element->{units}) || $element->{units} <= 0) {
             return status_bad_request('invalid composite element');
         }
-        push @element_eans, $element->{ean};
     }
 
-    # TODO: check if composite with same element combination exists
+    # TODO: check if composite with same element combination belonging
+    #       to same product exists
 
     # create a new, unallocated ean
-    if ($composite) {
+    if (@$composite) {
         my $rs;
         do {
             $ean = generate_ean;
@@ -94,10 +107,10 @@ post '/products' => protected 'admin', sub {
         });
 
         # if composite, create composite relations
-        foreach my $element (@{$composite}) {
-            $product->add_to_composites({
-                productid => $product,
-                elementid => $element->{ean},
+        foreach my $element (@$composite) {
+            $product->create_related('composites', {
+                productid => $product->id,
+                elementid => $element->{id},
                 units     => $element->{units},
             });
         }
@@ -106,7 +119,7 @@ post '/products' => protected 'admin', sub {
             .$name.' ('.$product->id.')';
     });
 
-    return status_created({ean => $ean}) if $composite;
+    return status_created({ean => $ean}) if @$composite;
     return status_created();
 };
 
@@ -132,7 +145,7 @@ get qr{/products/([0-9]{13}|[0-9]{8})/price} => protected valid_product sub {
     my $price = $product->price($cashcard);
 
     return status_not_found('no price available') unless $price;
-    return status_ok({price => $price->value, condition => $price->condition});
+    return status_ok({price => $price->value*1.0, condition => $price->condition});
 };
 
 get qr{/products/([0-9]{13}|[0-9]{8})/conditions} => protected 'admin', valid_product sub {

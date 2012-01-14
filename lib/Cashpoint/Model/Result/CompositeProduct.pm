@@ -4,8 +4,7 @@ use strict;
 use warnings;
 
 use base qw/DBIx::Class::Core/;
-
-my $product_class = 'Cashpoint::Model::Result::Product';
+use Cashpoint::Model::Result::Product;
 
 __PACKAGE__->table('compositeproduct');
 __PACKAGE__->add_columns(
@@ -15,7 +14,12 @@ __PACKAGE__->add_columns(
         is_auto_increment => 1,
     },
 
-    compositeid => {
+    productid => {
+        data_type => 'integer',
+        is_nullable => 0,
+    },
+
+    elementid => {
         data_type => 'integer',
         is_nullable => 0,
     },
@@ -27,17 +31,11 @@ __PACKAGE__->add_columns(
 );
 
 __PACKAGE__->set_primary_key('id');
-__PACKAGE__->has_one(product => 'Cashpoint::Model::Result::Product', {
-    'foreign.productid' => 'self.compositeid'
-});
-
-# we want to behave like a "normal" product
-sub inflate_result {
-    my $self = shift;
-    my $ret = $self->next::method(@_);
-    $self->ensure_class_loaded($product_class);
-    bless $ret, $product_class;
-    return $ret;
-}
+__PACKAGE__->belongs_to('parent' => 'Cashpoint::Model::Result::Product',
+    { 'foreign.productid' => 'self.productid' });
+__PACKAGE__->belongs_to('element' => 'Cashpoint::Model::Result::Product',
+    { 'foreign.productid' => 'self.elementid' }, {
+        proxy => [ Cashpoint::Model::Result::Product->columns ],
+    });
 
 42;
