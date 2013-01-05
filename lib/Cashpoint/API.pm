@@ -40,8 +40,10 @@ hook 'before' => sub {
     # reset the context
     Cashpoint::Context->reset;
 
-    # query param takes precedence
-    my $auth_token =  params->{auth_token} || cookie('auth_token');
+    # query param > header > cookie
+    my $auth_token = params->{auth_token};
+    $auth_token  ||= request->header('auth_token');
+    $auth_token  ||= cookie('auth_token');
     return unless $auth_token;
 
     # ignore if auth_token contains unknown characters
