@@ -97,12 +97,15 @@ post qr{/baskets/([\d]+)/items} => protected valid_basket sub {
 
     return status_not_found('no price could be determined') unless $price;
 
-    my $balance = $basket->cashcard->balance;
-    if ($balance - $basket->value - $price->value < 0) {
-        WARN 'not enough credit available on cashcard '.$basket->cashcard->code
-            .'; '.($balance - $basket->value - $price->value).' EUR missing';
-        return status_bad_request('insufficient credit balance')
-    }
+    # check if there is enough balance
+    # XXX: disabled for introduction phase
+
+    #my $balance = $basket->cashcard->balance;
+    #if ($balance - $basket->value - $price->value < 0) {
+    #    WARN 'not enough credit available on cashcard '.$basket->cashcard->code
+    #        .'; '.($balance - $basket->value - $price->value).' EUR missing';
+    #    return status_bad_request('insufficient credit balance')
+    #}
 
     my $item = $basket->create_related('BasketItems', {
         productid   => $product->id,
@@ -163,9 +166,16 @@ put qr{/baskets/([\d]+)/checkout} => protected valid_basket sub {
             $i->product->update;
         }
 
+        # for introduction phase, we first charge the card with the necessary amount
+        $sale->cashcard->create_related('Credit', {
+            chargingtype => 1, # init
+            amount       => $basket->value,
+            date         => DateTime->now(time_zone => 'local'),
+        });
+
         # subtract credit
         $sale->cashcard->create_related('Credit', {
-            chargingtype => 2,
+            chargingtype => 2, # sale
             amount       => - $basket->value,
             date         => DateTime->now(time_zone => 'local'),
         });
