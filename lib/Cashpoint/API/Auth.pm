@@ -25,13 +25,6 @@ post '/auth' => sub {
     my ($code, $pin, $username, $passwd) = map { s/^\s+|\s+$//g if $_; $_ }
         (params->{code}, params->{pin}, params->{username}, params->{passwd});
 
-    # check if connection to benutzerdb is alive
-    eval { database; };
-    if ($@) {
-        ERROR 'could not connect to BenutzerDB: '.$@;
-        return status(503);
-    }
-
     # 1 = PIN, 2 = USER/PW
     my $auth_mode = 0;
 
@@ -48,16 +41,21 @@ post '/auth' => sub {
 
     # validate input data
     if ($auth_mode == 1) {
+        # XXX: i don't think we should use a fixed code length
         if (!defined $code || $code !~ /^[a-z0-9]{18}$/i) {
             push @errors, 'invalid code';
         } else {
             # check if the cashcard specified is valid
             $cashcard = schema('cashpoint')->resultset('Cashcard')->find({
                 code     => $code,
-                disabled => 0,
+                #disabled => 0,
             });
 
-            push @errors, 'invalid code' unless $cashcard;
+            debug "############\n\n\n############\n\n\nuser has cashcard";
+
+            # we allow registration of unused cashcards by logging in
+            # with the BenutzerDB pin
+            #push @errors, 'invalid code' unless $cashcard;
         }
 
         if (!defined $pin || !isint($pin)) {
@@ -75,6 +73,9 @@ post '/auth' => sub {
     # define query parameters
     if ($auth_mode == 1) {
         @query_params = (code => $code);
+        if (defined $cashcard) {
+            push @query_params, (cashcardid => $cashcard->id);
+        }
     } elsif ($auth_mode == 2) {
         @query_params = (username => $username);
     }
@@ -99,10 +100,54 @@ post '/auth' => sub {
             .$fails->count.' failed attempts).';
         $toomanyfails = $fails->count;
     } else {
-        $userid = auth_by_pin($cashcard->user, $pin) if $auth_mode == 1;
-        $userid = auth_by_passwd($username, $passwd) if $auth_mode == 2;
+        # $cashcard->user may be undef in case of auth by pin!
+        my $cc_user = (defined $cashcard) ? $cashcard->user : undef;
+
+        # if $cc_user is undef, lookup will be done based on pin only!
+        # this works only because the pin is unique.
+        if ($auth_mode == 1) {
+            if (not defined $cashcard) {
+                $userid = auth_by_pin($cc_user, $pin) if $auth_mode == 1;
+            } else {
+                $userid = $cashcard->user if $cashcard->pin == $pin;
+            }
+        } elsif ($auth_mode == 2) {
+            $userid = auth_by_passwd($username, $passwd);
+        }
 
         if (defined $userid) {
+            # if the user was found in the database and the cashcard is
+            # not yet in use, we register it to the user's account
+
+            # this is a feature designed for transition only!
+            if ($auth_mode == 1 and not defined $cashcard) {
+                # let's first check if the user already has a cashcard for the
+                # given group, in which case we bail out and refuse to register
+                # another one.
+                my $has_cc = schema('cashpoint')->resultset('Cashcard')->search({
+                    userid  => $userid,
+                    groupid => 1,
+                })->count;
+
+                if ($has_cc) {
+                    return status_bad_request([
+                        'refusing: registration of a new cashcard is a transition'
+                            .' feature and can only be done once.',
+                    ]);
+                }
+
+                $cashcard = schema('cashpoint')->resultset('Cashcard')->create({
+                    code    => $code,
+                    pin     => $pin,
+                    userid  => $userid,
+                    # we can safely assume that the user is a RZL-member
+                    groupid => 1, # XXX: make sure the group exists
+                    activationdate => $parser->format_datetime(DateTime->now),
+                });
+
+                push @query_params, (cashcardid => $cashcard->id);
+            }
+
             # check if there is already a valid session, in which case it'll be returned
             $auth = schema('cashpoint')->resultset('Session')->find({
                 @query_params,
@@ -177,7 +222,7 @@ post '/auth' => sub {
     return status_ok({
         user        => {
             id => int($userid),
-            name => get_user($userid)->{username},
+            #name => get_user($userid)->{username},
         },
         role        => @found == 1 ? 'admin' : 'user',
         auth_token  => $auth->token,

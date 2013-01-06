@@ -32,10 +32,13 @@ sub auth_by_pin {
     # check if connection to benutzerdb is alive
     eval { database; }; return undef if $@;
 
-    my $user = database->quick_select('nutzer', {
+    my $query = {
         id  => $userid,
         pin => $pin,
-    });
+    };
+
+    delete $query->{id} unless $userid;
+    my $user = database->quick_select('nutzer', $query);
 
     return $user->{id} ? $user->{id} : undef;
 };

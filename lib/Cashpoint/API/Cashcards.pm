@@ -31,14 +31,10 @@ post '/cashcards' => protected 'admin', sub {
         return status(503);
     }
 
-    my ($code, $user, $group) = map { s/^\s+|\s+$//g if $_; $_ }
-        (params->{code}, params->{user}, params->{group});
+    my ($user, $group, $code, $pin) = map { s/^\s+|\s+$//g if $_; $_ }
+        (params->{user}, params->{group}, params->{code}, params->{pin});
 
     my @errors = ();
-    if (!defined $code || $code !~ /^[a-z0-9]{18}$/i || schema('cashpoint')
-            ->resultset('Cashcard')->find({ code => $code})) {
-        push @errors, 'invalid code';
-    }
     if (!defined $user || !isint($user) || !get_user($user)) {
         push @errors, 'invalid user';
     }
@@ -46,13 +42,21 @@ post '/cashcards' => protected 'admin', sub {
             || !schema('cashpoint')->resultset('Group')->find($group))) {
         push @errors, 'group invalid or not found';
     }
+    if (!defined $code || $code !~ /^[a-z0-9]{18}$/i || schema('cashpoint')
+            ->resultset('Cashcard')->find({ code => $code})) {
+        push @errors, 'invalid code';
+    }
+    if (!defined $pin || $pin !~ /^\d{6}$/i) {
+        push @errors, 'invalid pin';
+    }
 
     return status_bad_request(\@errors) if @errors;
 
     schema('cashpoint')->resultset('Cashcard')->create({
-        code           => $code,
         groupid        => $group,
         userid         => $user,
+        code           => $code,
+        pin            => $pin,
         activationdate => DateTime->now(time_zone => 'local'),
     });
 
@@ -87,15 +91,7 @@ put qr{/cashcards/([a-zA-Z0-9]{18})/unlock} => protected valid_enabled_cashcard 
         return status_bad_request('invalid pin');
     }
 
-    # check if connection to benutzerdb is alive
-    eval { database; };
-    if ($@) {
-        ERROR 'could not connect to BenutzerDB: '.$@;
-        return status(503);
-    }
-
-    # validate pin
-    my $userid = auth_by_pin($cashcard->user, $pin);
+    my $userid = $cashcard->user if $cashcard->pin == $pin;
 
     if (!defined $userid) {
         WARN 'unlocking of card '.$cashcard->code.' failed (wrong pin?)';

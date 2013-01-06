@@ -23,6 +23,12 @@ __PACKAGE__->add_columns(
         is_nullable => 0,
     },
 
+    pin => {
+        data_type => 'varchar',
+        size      => 6,
+        is_nullable => 0,
+    },
+
     groupid => {
         accessor => 'group',
         data_type => 'integer',
