@@ -43,6 +43,9 @@ post '/groups' => protected 'admin', sub {
 };
 
 del qr{/groups/([\d]+)} => protected 'admin', valid_group sub {
+    # i don't think we'll allow this
+    return status_bad_request();
+
     my $group  = shift;
 
     schema('cashpoint')->txn_do(sub {
@@ -57,60 +60,6 @@ del qr{/groups/([\d]+)} => protected 'admin', valid_group sub {
 
     INFO 'user '.Cashpoint::Context->get('userid').' deleted group '
         .$group->name.' ('.$group->id.')';
-
-    return status_ok();
-};
-
-get qr{/groups/([\d]+)/memberships} => protected 'admin', valid_group sub {
-    my $group  = shift;
-    my @data = schema('cashpoint')->resultset('Membership')->ordered($group->id);
-    return status_ok(\@data);
-};
-
-post qr{/groups/([\d]+)/memberships} => protected 'admin', valid_group sub {
-    my $group = shift;
-    (my $user = params->{user} || "") =~ s/^\s+|\s+$//g;
-
-    # check if connection to benutzerdb is alive
-    eval { database; }; return status(503) if $@;
-
-    my @errors = ();
-    if (!defined $user || !isint($user) || !get_user($user)) {
-        push @errors, 'invalid user';
-    } else {
-        $group->find_related('Memberships', {
-            userid  => $user,
-        }) && push @errors, 'user is already member of that group';
-    }
-
-    return status_bad_request(\@errors) if @errors;
-
-    my $membership = $group->create_related('Memberships', {
-        userid  => $user,
-    });
-
-    INFO 'user '.Cashpoint::Context->get('userid').' added user '.$user.' to'
-        .' group '.$group->name.' ('.$group->id.')';
-
-    return status_created({id => $membership->id});
-};
-
-del qr{/groups/([\d]+)/memberships/([\d]+)} => protected 'admin', valid_group sub {
-    my $group = shift;
-    my (undef, $membershipid) = splat;
-
-    # watch out: use search instead of find, because we need to match the group again
-    my $membership = $group->search_related('Memberships', {
-        membershipid => $membershipid,
-    });
-
-    return status_not_found('membership not found') unless $membership->count;
-
-    my ($userid, $groupid) = ($membership->userid, $membership->groupid);
-    $membership->delete;
-
-    INFO 'user '.Cashpoint::Context->get('userid').' removed user '
-        .$userid.' from group '.$groupid;
 
     return status_ok();
 };

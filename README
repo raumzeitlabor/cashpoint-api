@@ -63,35 +63,6 @@ creates a new group with given name and returns its id upon success
 ### DELETE /groups/:id
 deletes the group identified by its id
 
-### GET /groups/:id/memberships
-returns the memberships of a given group ordered ascending by their membership id
-
-#### Response
-
-    [
-        {
-            "id" : 1,
-            "user" : 1
-        }
-    ]
-
-### POST /groups/:id/memberships
-adds a user to a given group and returns the new membership id upon success
-
-#### Parameters
-
-    user        id of the user to be added
-
-#### Response
-
-    {
-        "id" : 2
-    }
-
-### DELETE /groups/:id/memberships/:mid
-deletes the membership with given id from the specified group
-
-
 ## Cashcards
 ### GET /cashcards
 returns a list of all registered cashcards ordered descending by their activation date
