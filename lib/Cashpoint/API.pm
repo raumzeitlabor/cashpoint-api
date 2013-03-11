@@ -58,6 +58,7 @@ hook 'before' => sub {
     my $session = schema('cashpoint')->resultset('Session')->find({
         token       => $auth_token,
         last_action => { '>=', $parser->format_datetime($some_time_ago) },
+        expired     => 0,
     });
 
     return unless $session;
@@ -89,9 +90,10 @@ hook 'after' => sub {
 
     DEBUG 'setting session cookie';
 
-    my $valid_until = DateTime->now(time_zone => 'local')->add(
-        minutes => setting('FAILED_LOGIN_LOCK') || 5,
-    );
+    #my $valid_until = DateTime->now(time_zone => 'local')->add(
+    #    minutes => setting('FAILED_LOGIN_LOCK') || 5,
+    #);
+    my $valid_until = DateTime->now(time_zone => 'local');
 
     # update last_action time
     schema('cashpoint')->resultset('Session')->find({
